@@ -2,10 +2,7 @@ use makepad_widgets::*;
 use matrix_sdk::ruma::OwnedRoomId;
 
 use crate::{
-    home::{main_desktop_ui::RoomsPanelAction, rooms_list::RoomListAction},
-    verification::VerificationAction,
-    verification_modal::{VerificationModalAction, VerificationModalWidgetRefExt},
-    login::login_screen::LoginAction,
+    home::{main_desktop_ui::RoomsPanelAction, rooms_list::RoomListAction}, login::login_screen::LoginAction, shared::adaptive_view::AdaptiveViewWidgetRefExt, verification::VerificationAction, verification_modal::{VerificationModalAction, VerificationModalWidgetRefExt}
 };
 
 live_design! {
@@ -205,6 +202,29 @@ impl MatchEvent for App {
                         &Scope::default().path,
                         StackNavigationAction::NavigateTo(live_id!(main_content_view))
                     );
+                    let adaptive_view = self.ui.adaptive_view(id!(home_screen_view.home_screen));
+                    log!("adaptive_view: {:?}", adaptive_view);
+                    let mut results = WidgetSet::default();
+                    adaptive_view.find_widgets(
+                        id!(view_stack),
+                        WidgetCache::No,
+                        &mut results,
+                    );
+                    log!("WidgetSet results: {:?}", results);
+                    let mut results2 = WidgetSet::default();
+                    adaptive_view.find_widgets(
+                        id!(main_content_view),
+                        WidgetCache::No,
+                        &mut results2,
+                    );
+                    log!("WidgetSet results2: {:?}", results2);
+                    let stack_navigation = results.into_first().as_stack_navigation();
+                    log!("stack_navigation: {:?}", stack_navigation);
+                    stack_navigation.set_title(
+                        live_id!(main_content_view),
+                        room_name.unwrap_or_else(|| format!("Room {room_id}")).as_str(),
+                    );
+
                     self.ui.redraw(cx);
                 }
                 RoomListAction::None => { }

@@ -38,7 +38,7 @@ live_design! {
         }
 
         Mobile = {
-            show_bg: true
+            show_bg: false
             draw_bg: {
                 color: (COLOR_PRIMARY)
             }
@@ -60,6 +60,18 @@ live_design! {
                         body = {
                             main_content = <MainMobileUI> {}
                         }
+                        header = { 
+                            show_bg: false,
+                            content = { title_container = {
+                            title = {
+                                margin: 0,
+                                draw_text = { 
+                                    text_style = { font_size: 14.0 }
+                                    color: #000
+                                }
+                                text: "Loading room name..."
+                            }
+                        } } }
                     }
                 }
             }
