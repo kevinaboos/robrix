@@ -443,9 +443,9 @@ impl Widget for UserProfileSlidingPane {
         // 5. The user clicks/touches outside the main_content view area.
         let close_pane = match event {
             Event::Actions(actions) => self.button(id!(close_button)).clicked(actions),  // 1
-            Event::BackPressed => true,                                                  // 2
             _ => false,
         } || match event.hits_with_capture_overload(cx, area, true) {
+            Hit::BackPressed => true,                                                    // 2
             Hit::KeyUp(key) => key.key_code == KeyCode::Escape,                          // 3
             Hit::FingerDown(_fde) => {
                 cx.set_key_focus(area);

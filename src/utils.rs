@@ -24,6 +24,7 @@ pub fn is_interactive_hit_event(event: &Event) -> bool {
         | Event::TextInput(..)
         | Event::TextCopy(..)
         | Event::TextCut(..)
+        | Event::BackPressed
     )
 }
 

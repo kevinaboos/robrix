@@ -356,8 +356,8 @@ impl Widget for NewMessageContextMenu {
         // 2. The escape key is pressed if this menu has key focus,
         // 3. The user clicks/touches outside the main_content view area.
         // 4. The user scrolls anywhere.
-        let close_menu = matches!(event, Event::BackPressed)                    // 1
-        || match event.hits_with_capture_overload(cx, area, true) {
+        let close_menu = match event.hits_with_capture_overload(cx, area, true) {
+            Hit::BackPressed => true,                                           // 1
             Hit::KeyUp(key) => key.key_code == KeyCode::Escape,                 // 2
             Hit::FingerDown(fde) => {
                 let reaction_text_input = self.view.text_input(id!(reaction_input_view.reaction_text_input));
