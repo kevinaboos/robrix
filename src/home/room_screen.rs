@@ -6,6 +6,7 @@ use std::{borrow::Cow, cell::RefCell, ops::{DerefMut, Range}, sync::Arc};
 use bytesize::ByteSize;
 use hashbrown::{HashMap, HashSet};
 use imbl::Vector;
+use indexmap::IndexMap;
 use makepad_widgets::{image_cache::ImageBuffer, *};
 use matrix_sdk::{
     OwnedServerName, RoomDisplayName, media::{MediaFormat, MediaRequestParameters}, room::RoomMember, ruma::{
@@ -42,6 +43,7 @@ use crate::room::room_input_bar::RoomInputBarWidgetExt;
 use crate::shared::mentionable_text_input::MentionableTextInputAction;
 
 use rangemap::RangeSet;
+use url::Url;
 
 use super::{event_reaction_list::ReactionData, loading_pane::LoadingPaneRef, new_message_context_menu::{MessageAbilities, MessageDetails}, room_read_receipt::{self, populate_read_receipts, MAX_VISIBLE_AVATARS_IN_READ_RECEIPT}};
 
@@ -54,6 +56,8 @@ const MAX_ITEMS_TO_SEARCH_THROUGH: usize = 100;
 
 /// The max size (width or height) of a blurhash image to decode.
 const BLURHASH_IMAGE_MAX_SIZE: u32 = 500;
+/// Upper bound for cached prepared text bodies per timeline.
+const MAX_PREPARED_TEXT_MESSAGE_CACHE_ITEMS: usize = 512;
 
 static UNNAMED_ROOM: &str = "Unnamed Room";
 
@@ -1112,6 +1116,7 @@ impl Widget for RoomScreen {
                                                 prev_event,
                                                 &mut tl_state.media_cache,
                                                 &mut tl_state.link_preview_cache,
+                                                &mut tl_state.prepared_text_messages,
                                                 &tl_state.fetched_thread_summaries,
                                                 &mut tl_state.pending_thread_summary_fetches,
                                                 &tl_state.user_power,
@@ -1255,6 +1260,7 @@ impl RoomScreen {
                 TimelineUpdate::FirstUpdate { initial_items } => {
                     tl.content_drawn_since_last_update.clear();
                     tl.profile_drawn_since_last_update.clear();
+                    tl.prepared_text_messages.clear();
                     tl.fully_paginated = false;
                     // Set the portal list to the very bottom of the timeline.
                     portal_list.set_first_id_and_scroll(initial_items.len().saturating_sub(1), 0.0);
@@ -1265,6 +1271,15 @@ impl RoomScreen {
                     done_loading = true;
                 }
                 TimelineUpdate::NewItems { new_items, changed_indices, is_append, clear_cache } => {
+                    if clear_cache || new_items.is_empty() {
+                        tl.prepared_text_messages.clear();
+                    } else {
+                        invalidate_prepared_text_message_cache(
+                            &mut tl.prepared_text_messages,
+                            &tl.items,
+                            changed_indices.clone(),
+                        );
+                    }
                     if new_items.is_empty() {
                         if !tl.items.is_empty() {
                             log!("process_timeline_updates(): timeline (had {} items) was cleared for room {}", tl.items.len(), tl.kind.room_id());
@@ -2245,6 +2260,7 @@ impl RoomScreen {
                 request_sender,
                 media_cache: MediaCache::new(Some(update_sender.clone())),
                 link_preview_cache: LinkPreviewCache::new(Some(update_sender)),
+                prepared_text_messages: IndexMap::new(),
                 fetched_thread_summaries: HashMap::new(),
                 pending_thread_summary_fetches: HashSet::new(),
                 saved_state: SavedState::default(),
@@ -2810,6 +2826,8 @@ struct TimelineUiState {
 
     /// Cache for link preview data indexed by URL to avoid redundant network requests.
     link_preview_cache: LinkPreviewCache,
+    /// Cached linkified/plaintext message bodies keyed by timeline item ID.
+    prepared_text_messages: PreparedTextMessageCache,
     /// Cached fetched thread-summary details, keyed by thread-root event ID.
     fetched_thread_summaries: HashMap<OwnedEventId, FetchedThreadSummary>,
     /// Set of thread roots currently being fetched to avoid duplicate in-flight requests.
@@ -2863,6 +2881,29 @@ enum MessageHighlightAnimationState {
     Pending { item_id: usize },
     #[default]
     Off,
+}
+
+#[derive(Clone, Debug)]
+enum PreparedTextMessageBody {
+    Html(String),
+    Plaintext(String),
+}
+
+#[derive(Clone, Debug)]
+struct PreparedTextMessageContent {
+    body: PreparedTextMessageBody,
+    links: Vec<Url>,
+}
+
+type PreparedTextMessageCache = IndexMap<TimelineEventItemId, PreparedTextMessageContent>;
+
+impl PreparedTextMessageContent {
+    fn show(&self, cx: &mut Cx, widget_out: &HtmlOrPlaintextRef) {
+        match &self.body {
+            PreparedTextMessageBody::Html(body) => widget_out.show_html(cx, body),
+            PreparedTextMessageBody::Plaintext(body) => widget_out.show_plaintext(cx, body),
+        }
+    }
 }
 
 /// States that are necessary to save in order to maintain a consistent UI display for a timeline.
@@ -2982,6 +3023,7 @@ fn populate_message_view(
     prev_event: Option<&Arc<TimelineItem>>,
     media_cache: &mut MediaCache,
     link_preview_cache: &mut LinkPreviewCache,
+    prepared_text_messages: &mut PreparedTextMessageCache,
     fetched_thread_summaries: &HashMap<OwnedEventId, FetchedThreadSummary>,
     pending_thread_summary_fetches: &mut HashSet<OwnedEventId>,
     user_power_levels: &UserPowerLevels,
@@ -2991,6 +3033,7 @@ fn populate_message_view(
 ) -> (WidgetRef, ItemDrawnStatus) {
     let mut new_drawn_status = item_drawn_status;
     let ts_millis = event_tl_item.timestamp();
+    let timeline_event_id = event_tl_item.identifier();
 
     let mut is_notice = false; // whether this message is a Notice (automated bot message)
     let mut is_server_notice = false; // whether this message is a Server Notice
@@ -3037,6 +3080,7 @@ fn populate_message_view(
                         new_drawn_status.content_drawn = populate_text_message_content(
                             cx,
                             &html_or_plaintext_ref,
+                            Some((prepared_text_messages, timeline_event_id.clone())),
                             body,
                             formatted.as_ref(),
                             Some(&mut link_preview_ref),
@@ -3074,6 +3118,7 @@ fn populate_message_view(
                         new_drawn_status.content_drawn = populate_text_message_content(
                             cx,
                             &html_or_plaintext_ref,
+                            Some((prepared_text_messages, timeline_event_id.clone())),
                             body,
                             formatted.as_ref(),
                             Some(&mut link_preview_ref),
@@ -3117,6 +3162,7 @@ fn populate_message_view(
                         new_drawn_status.content_drawn = populate_text_message_content(
                             cx,
                             &html_or_plaintext_ref,
+                            Some((prepared_text_messages, timeline_event_id.clone())),
                             &sn.body,
                             Some(&FormattedBody {
                                 format: MessageFormat::Html,
@@ -3171,6 +3217,7 @@ fn populate_message_view(
                         let link_previews_drawn = populate_text_message_content(
                             cx,
                             &html_or_plaintext_ref,
+                            Some((prepared_text_messages, timeline_event_id.clone())),
                             &body,
                             formatted.as_ref(),
                             Some(&mut link_preview_ref),
@@ -3321,6 +3368,7 @@ fn populate_message_view(
                         new_drawn_status.content_drawn = populate_text_message_content(
                             cx,
                             &html_or_plaintext_ref,
+                            Some((prepared_text_messages, timeline_event_id.clone())),
                             &verification.body,
                             Some(&formatted),
                             Some(&mut link_preview_ref),
@@ -3426,8 +3474,6 @@ fn populate_message_view(
             }
         }
     };
-
-    let timeline_event_id = event_tl_item.identifier();
 
     // If we didn't use a cached item, we need to draw all other message content:
     // the reactions, the read receipts avatar row, the reply preview.
@@ -3588,21 +3634,12 @@ fn populate_message_view(
     (item, new_drawn_status)
 }
 
-/// Draws the Html or plaintext body of the given Text or Notice message into the `message_content_widget`.
-/// Also populates link previews if a link_preview_ref is provided.
-/// Returns whether the text items were fully drawn.
-fn populate_text_message_content(
-    cx: &mut Cx,
-    message_content_widget: &HtmlOrPlaintextRef,
+fn prepare_text_message_content(
     body: &str,
     formatted_body: Option<&FormattedBody>,
-    link_preview_ref: Option<&mut LinkPreviewRef>,
-    media_cache: Option<&mut MediaCache>,
-    link_preview_cache: Option<&mut LinkPreviewCache>,
-) -> bool {
-    // The message was HTML-formatted rich text.
+) -> PreparedTextMessageContent {
     let mut links = Vec::new();
-    if let Some(fb) = formatted_body.as_ref()
+    let prepared_body = if let Some(fb) = formatted_body.as_ref()
         .and_then(|fb| (fb.format == MessageFormat::Html).then_some(fb))
     {
         let linkified_html = utils::linkify_get_urls(
@@ -3610,16 +3647,75 @@ fn populate_text_message_content(
             true,
             Some(&mut links),
         );
-        message_content_widget.show_html(cx, linkified_html);
+        PreparedTextMessageBody::Html(linkified_html.into_owned())
     }
-    // The message was non-HTML plaintext.
     else {
         let linkified_html = utils::linkify_get_urls(body, false, Some(&mut links));
         match linkified_html {
-            Cow::Owned(linkified_html) => message_content_widget.show_html(cx, &linkified_html),
-            Cow::Borrowed(plaintext) => message_content_widget.show_plaintext(cx, plaintext),
+            Cow::Owned(linkified_html) => PreparedTextMessageBody::Html(linkified_html),
+            Cow::Borrowed(plaintext) => PreparedTextMessageBody::Plaintext(plaintext.to_owned()),
         }
     };
+    PreparedTextMessageContent {
+        body: prepared_body,
+        links,
+    }
+}
+
+fn get_or_prepare_text_message_content(
+    cache: &mut PreparedTextMessageCache,
+    cache_key: TimelineEventItemId,
+    body: &str,
+    formatted_body: Option<&FormattedBody>,
+) -> PreparedTextMessageContent {
+    if let Some(prepared) = cache.shift_remove(&cache_key) {
+        cache.insert(cache_key, prepared.clone());
+        return prepared;
+    }
+
+    let prepared = prepare_text_message_content(body, formatted_body);
+    if cache.len() >= MAX_PREPARED_TEXT_MESSAGE_CACHE_ITEMS {
+        if let Some(oldest_key) = cache.keys().next().cloned() {
+            cache.shift_remove(&oldest_key);
+        }
+    }
+    cache.insert(cache_key, prepared.clone());
+    prepared
+}
+
+fn invalidate_prepared_text_message_cache(
+    cache: &mut PreparedTextMessageCache,
+    items: &Vector<Arc<TimelineItem>>,
+    changed_indices: Range<usize>,
+) {
+    for item in items.iter().skip(changed_indices.start)
+        .take(changed_indices.end.saturating_sub(changed_indices.start))
+    {
+        if let Some(cache_key) = item.as_event().map(|event| event.identifier()) {
+            cache.shift_remove(&cache_key);
+        }
+    }
+}
+
+/// Draws the Html or plaintext body of the given Text or Notice message into the `message_content_widget`.
+/// Also populates link previews if a link_preview_ref is provided.
+/// Returns whether the text items were fully drawn.
+fn populate_text_message_content(
+    cx: &mut Cx,
+    message_content_widget: &HtmlOrPlaintextRef,
+    prepared_text_messages: Option<(&mut PreparedTextMessageCache, TimelineEventItemId)>,
+    body: &str,
+    formatted_body: Option<&FormattedBody>,
+    link_preview_ref: Option<&mut LinkPreviewRef>,
+    media_cache: Option<&mut MediaCache>,
+    link_preview_cache: Option<&mut LinkPreviewCache>,
+) -> bool {
+    let prepared = if let Some((cache, cache_key)) = prepared_text_messages {
+        get_or_prepare_text_message_content(cache, cache_key, body, formatted_body)
+    } else {
+        prepare_text_message_content(body, formatted_body)
+    };
+    prepared.show(cx, message_content_widget);
 
     // Populate link previews if all required parameters are provided
     if let (Some(link_preview_ref), Some(media_cache), Some(link_preview_cache)) = 
@@ -3627,7 +3723,7 @@ fn populate_text_message_content(
     {
         link_preview_ref.populate_below_message(
             cx,
-            &links,
+            &prepared.links,
             media_cache,
             link_preview_cache,
             &populate_image_message_content,
@@ -4215,7 +4311,7 @@ pub fn populate_preview_of_timeline_item(
         match m.msgtype() {
             MessageType::Text(TextMessageEventContent { body, formatted, .. })
             | MessageType::Notice(NoticeMessageEventContent { body, formatted, .. }) => {
-                let _ = populate_text_message_content(cx, widget_out, body, formatted.as_ref(), None, None, None);
+                let _ = populate_text_message_content(cx, widget_out, None, body, formatted.as_ref(), None, None, None);
                 return;
             }
             _ => { } // fall through to the general case for all timeline items below.

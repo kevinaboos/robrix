@@ -670,6 +670,7 @@ impl Widget for MatrixHtmlSpan {
 pub struct HtmlOrPlaintext {
     #[source] source: ScriptObjectRef,
     #[deref] view: View,
+    #[rust] displayed_content: HtmlOrPlaintextContent,
 }
 
 impl Widget for HtmlOrPlaintext {
@@ -682,19 +683,43 @@ impl Widget for HtmlOrPlaintext {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum HtmlOrPlaintextContent {
+    Html(String),
+    Plaintext(String),
+    #[default]
+    None,
+}
+
 impl HtmlOrPlaintext {
     /// Sets the plaintext content and makes it visible, hiding the rich HTML content.
     pub fn show_plaintext<T: AsRef<str>>(&mut self, cx: &mut Cx, text: T) {
+        let text = text.as_ref();
+        if matches!(
+            &self.displayed_content,
+            HtmlOrPlaintextContent::Plaintext(current) if current == text
+        ) {
+            return;
+        }
         self.view(cx, ids!(html_view)).set_visible(cx, false);
         self.view(cx, ids!(plaintext_view)).set_visible(cx, true);
-        self.label(cx, ids!(plaintext_view.pt_label)).set_text(cx, text.as_ref());
+        self.label(cx, ids!(plaintext_view.pt_label)).set_text(cx, text);
+        self.displayed_content = HtmlOrPlaintextContent::Plaintext(text.to_owned());
     }
 
     /// Sets the HTML content, making the HTML visible and the plaintext invisible.
     pub fn show_html<T: AsRef<str>>(&mut self, cx: &mut Cx, html_body: T) {
-        self.html(cx, ids!(html_view.html)).set_text(cx, html_body.as_ref());
+        let html_body = html_body.as_ref();
+        if matches!(
+            &self.displayed_content,
+            HtmlOrPlaintextContent::Html(current) if current == html_body
+        ) {
+            return;
+        }
+        self.html(cx, ids!(html_view.html)).set_text(cx, html_body);
         self.view(cx, ids!(html_view)).set_visible(cx, true);
         self.view(cx, ids!(plaintext_view)).set_visible(cx, false);
+        self.displayed_content = HtmlOrPlaintextContent::Html(html_body.to_owned());
     }
 }
 
