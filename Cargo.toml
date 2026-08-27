@@ -26,6 +26,10 @@ robius-share       = { git = "https://github.com/project-robius/robius" }
 robius-use-makepad = "0.1.1" ## auto-configures all `robius-*` crates to work with Makepad.
 
 
+## Mini-app (a2app) support crates; see the `a2app` feature below.
+a2app-core  = { path = "a2app/core",  optional = true }
+a2app-agent = { path = "a2app/agent", optional = true }
+
 anyhow = "1.0"
 bitflags = "2.6.0"
 blurhash = { version = "0.2.3", default-features = false }
@@ -122,6 +126,20 @@ default = []
 ## Enables experimental support for using TSP wallets.
 tsp = ["dep:tsp_sdk", "dep:quinn", "dep:aws-lc-rs", "dep:percent-encoding", "dep:reqwest"]
 
+## Enables Splash mini-apps: AI-generated sandboxed apps that run in isolates,
+## managed via the Mini Apps pane and shareable into rooms.
+## The default agent backend spawns `octos acp` as a child process.
+a2app = ["dep:a2app-core", "dep:a2app-agent"]
+## Links the octos agent into Robrix itself instead of spawning `octos acp`
+## as a child process. Required on iOS, where exec() is prohibited.
+a2app-embedded-agent = ["a2app", "a2app-agent/embedded"]
+## Installs the Splash dialect guide on the agent once (as a bootstrap file or
+## system prompt) so each generation prompt can point at it instead of inlining it.
+a2app-persistent-guide = ["a2app", "a2app-agent/persistent-guide"]
+## Lets the agent research with its tools (web search/fetch) before generating,
+## baking found data into the generated app as constants.
+a2app-research = ["a2app", "a2app-agent/research"]
+
 ## Hides the command prompt console/log window on Windows.
 ## This is enabled automatically for packaged builds via cargo-packager
 ## (see `build.rs`), but you can also enable it manually if desired.
@@ -135,6 +153,9 @@ log_timeline_diffs = []
 
 ## Logs all diffs received by the Matrix SpaceService.
 log_space_service_diffs = []
+
+[workspace]
+members = ["a2app/core", "a2app/agent"]
 
 
 [patch.crates-io]
@@ -342,7 +363,12 @@ appdata_paths = [
     "$LOCALAPPDATA/$PRODUCTNAME",
 ]
 
-[lints.rust]
+## The lint tables live under `[workspace.lints]` so the `a2app/` member
+## crates share them; this package opts in here.
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 keyword_idents_2024 = "forbid"
 non_ascii_idents = "forbid"
 non_local_definitions = "forbid"
@@ -351,7 +377,7 @@ unnameable_types = "warn"
 unused_import_braces = "warn"
 
 ## Configuration for clippy lints.
-[lints.clippy]
+[workspace.lints.clippy]
 blocks_in_conditions = "allow"
 collapsible_if = "allow"
 collapsible_else_if = "allow"

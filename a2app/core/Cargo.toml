@@ -1,0 +1,28 @@
+[package]
+name = "a2app-core"
+authors = ["Kevin Boos <kevinaboos@gmail.com>"]
+description = "Core mini-app support for Robrix: manifests, registry, bundles, versions, permissions, and the host-service broker for sandboxed Splash mini-apps."
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/project-robius/robrix"
+version = "0.1.0"
+
+[dependencies]
+## Must stay on the same source/branch as Robrix's own makepad dep,
+## or the Splash widget/bridge types won't match.
+makepad-widgets = { git = "https://github.com/makepad/makepad", branch = "dev", features = ["serde"] }
+
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+## Platform brokers behind the mini-app permission system:
+## geolocation, open-in-browser, system file picker, share sheet, biometric auth.
+robius-location       = { git = "https://github.com/project-robius/robius" }
+robius-open           = { git = "https://github.com/project-robius/robius" }
+robius-file-picker    = { git = "https://github.com/project-robius/robius" }
+robius-share          = { git = "https://github.com/project-robius/robius" }
+robius-authentication = { git = "https://github.com/project-robius/robius" }
+
+[lints]
+workspace = true
