@@ -13,11 +13,14 @@
 //! 1. Home (house icon): the main view that shows all rooms across all spaces.
 //! 2. Add Room (plus sign icon): a separate view that allows adding (joining) existing rooms,
 //!    exploring public rooms, or creating new rooms/spaces.
-//! 3. Spaces: a button that toggles the `SpacesBar` (shows/hides it).
+//! 3. Mini Apps (sparkle icon): the Splash mini-apps management view.
+//!    * Hidden unless the `a2app` feature is enabled and the corresponding
+//!      App Setting is on.
+//! 4. Spaces: a button that toggles the `SpacesBar` (shows/hides it).
 //!    * This is NOT a regular radio button, it's a separate toggle.
 //!    * This is only shown in Mobile view mode, because the `SpacesBar` is always shown
 //!      within the NavigationTabBar itself in Desktop view mode.
-//! 4. Profile/Settings (user profile avatar): the `ProfileIcon` with a
+//! 5. Profile/Settings (user profile avatar): the `ProfileIcon` with a
 //!    verification badge. This single button serves as both the user-avatar
 //!    indicator and the entry point to the SettingsScreen.
 //!    * Upon click, this shows the SettingsScreen as normal, and is visually
@@ -27,7 +30,8 @@
 //! 1. Profile/Settings
 //! 2. Home
 //! 3. Add/Join
-//! 4. ----- separator -----
+//! 4. Mini Apps (optional, as above)
+//! 5. ----- separator -----
 //!      SpacesBar content
 //!
 
@@ -151,6 +155,25 @@ script_mod! {
         }
     }
 
+    // Hidden by default; shown at runtime only when the `a2app` feature is
+    // enabled AND the "show Mini Apps button" preference is on.
+    mod.widgets.MiniAppsButton = mod.widgets.NavigationTabButton {
+        visible: false,
+        tooltip_text: "Mini Apps"
+        Icon {
+            margin: 0,
+            icon_walk: Walk {
+                margin: 0,
+                width: 27,
+                height: 27
+            }
+            draw_icon +: {
+                color: (COLOR_NAVIGATION_TAB_FG)
+                svg: (ICON_SPARKLE)
+            }
+        }
+    }
+
     // Built on `NavigationTabButton` so it shares the size/padding and
     // hover animation. Its toggling is independent of navigation selection,
     // so the parent never calls `set_selected` on it.
@@ -199,6 +222,9 @@ script_mod! {
             CachedWidget {
                 add_room_button := mod.widgets.AddRoomButton {}
             }
+            CachedWidget {
+                mini_apps_button := mod.widgets.MiniAppsButton {}
+            }
 
             mod.widgets.Separator {}
 
@@ -232,6 +258,9 @@ script_mod! {
             }
             CachedWidget {
                 add_room_button := mod.widgets.AddRoomButton {}
+            }
+            CachedWidget {
+                mini_apps_button := mod.widgets.MiniAppsButton {}
             }
 
             toggle_spaces_bar_button := mod.widgets.ToggleSpacesBarButton {}
@@ -471,12 +500,14 @@ impl ScriptHook for NavigationTabBar {
     fn on_after_new(&mut self, vm: &mut ScriptVm) {
         vm.with_cx_mut(|cx| {
             self.apply_selected_tab(cx, None);
+            self.update_mini_apps_button_visibility(cx);
         });
     }
 
     fn on_after_reload(&mut self, vm: &mut ScriptVm) {
         vm.with_cx_mut(|cx| {
             self.apply_selected_tab(cx, None);
+            self.update_mini_apps_button_visibility(cx);
         });
     }
 }
@@ -498,37 +529,62 @@ impl NavigationTabBar {
         if let Some(t) = tab {
             self.selected_tab = t;
         }
-        let home    = self.view.navigation_bar_button(cx, ids!(home_button));
-        let add     = self.view.navigation_bar_button(cx, ids!(add_room_button));
-        let profile = self.view.profile_icon(cx, ids!(profile_icon));
+        let home      = self.view.navigation_bar_button(cx, ids!(home_button));
+        let add       = self.view.navigation_bar_button(cx, ids!(add_room_button));
+        let mini_apps = self.view.navigation_bar_button(cx, ids!(mini_apps_button));
+        let profile   = self.view.profile_icon(cx, ids!(profile_icon));
         match &self.selected_tab {
             SelectedTab::Home => {
                 home.set_selected(cx, true);
                 add.set_selected(cx, false);
+                mini_apps.set_selected(cx, false);
                 profile.set_selected(cx, false);
             }
             SelectedTab::AddRoom => {
                 home.set_selected(cx, false);
                 add.set_selected(cx, true);
+                mini_apps.set_selected(cx, false);
+                profile.set_selected(cx, false);
+            }
+            SelectedTab::MiniApps => {
+                home.set_selected(cx, false);
+                add.set_selected(cx, false);
+                mini_apps.set_selected(cx, true);
                 profile.set_selected(cx, false);
             }
             SelectedTab::Settings => {
                 home.set_selected(cx, false);
                 add.set_selected(cx, false);
+                mini_apps.set_selected(cx, false);
                 profile.set_selected(cx, true);
             }
             SelectedTab::Space { .. } => {
                 home.set_selected(cx, false);
                 add.set_selected(cx, false);
+                mini_apps.set_selected(cx, false);
                 profile.set_selected(cx, false);
             }
         }
+    }
+
+    /// Shows the Mini Apps button only in `a2app` builds where the
+    /// corresponding preference is enabled.
+    fn update_mini_apps_button_visibility(&mut self, cx: &mut Cx) {
+        let show = cfg!(feature = "a2app")
+            && cx.global::<crate::settings::app_preferences::AppPreferencesGlobal>().0.show_mini_apps_button;
+        self.view.widget(cx, ids!(mini_apps_button)).set_visible(cx, show);
     }
 }
 
 impl Widget for NavigationTabBar {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+
+        // A script reapply resets DSL children to their defaults, which hides
+        // the Mini Apps button; re-assert its visibility.
+        if let Event::ScriptReapply = event {
+            self.update_mini_apps_button_visibility(cx);
+        }
 
         if let Event::Actions(actions) = event {
             // Handle clicks on each of the navigation tab buttons.
@@ -541,6 +597,10 @@ impl Widget for NavigationTabBar {
             else if self.view.navigation_bar_button(cx, ids!(add_room_button)).clicked(actions) {
                 self.apply_selected_tab(cx, Some(SelectedTab::AddRoom));
                 cx.action(NavigationBarAction::GoToAddRoom);
+            }
+            else if self.view.navigation_bar_button(cx, ids!(mini_apps_button)).clicked(actions) {
+                self.apply_selected_tab(cx, Some(SelectedTab::MiniApps));
+                cx.action(NavigationBarAction::GoToMiniApps);
             }
             else {
                 // ProfileIcon's inner NavigationBarButton emits the click action,
@@ -581,6 +641,12 @@ impl Widget for NavigationTabBar {
                         self.apply_view_mode(*new_mode);
                         self.view.redraw(cx);
                     }
+                    continue;
+                }
+
+                if let Some(AppPreferencesAction::ShowMiniAppsButtonChanged(_)) = action.downcast_ref() {
+                    self.update_mini_apps_button_visibility(cx);
+                    self.view.redraw(cx);
                 }
             }
         }
@@ -598,6 +664,8 @@ pub enum SelectedTab {
     #[default]
     Home,
     AddRoom,
+    /// The Mini Apps management view; only reachable in `a2app` builds.
+    MiniApps,
     Settings,
     // AlertsInbox,
     Space { space_name_id: RoomNameId },
@@ -638,6 +706,8 @@ pub enum NavigationBarAction {
     GoToHome,
     /// Go the add/join/explore room view.
     GoToAddRoom,
+    /// Go to the Mini Apps management view. Only emitted in `a2app` builds.
+    GoToMiniApps,
     /// Go to the Settings view (open the `SettingsScreen`).
     OpenSettings,
     /// Close the Settings view (`SettingsScreen`), returning to the previous view.

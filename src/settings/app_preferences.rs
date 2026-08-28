@@ -34,6 +34,10 @@ pub struct AppPreferences {
     /// Whether to show other users' read receipts beneath timeline events.
     #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
     pub show_read_receipts: bool,
+    /// Whether to show the Mini Apps button in the NavigationTabBar.
+    /// Only relevant when the `a2app` feature is enabled.
+    #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
+    pub show_mini_apps_button: bool,
 
     // Note: if you add a new preference here, be sure to add a new
     // function `on_<NEW_PREFERENCE>_changed` and update `broadcast_all()`.
@@ -49,6 +53,7 @@ impl Default for AppPreferences {
             read_receipts_privacy: ReadReceiptsPrivacy::default(),
             mark_as_read_behavior: MarkAsReadBehavior::default(),
             show_read_receipts: true,
+            show_mini_apps_button: true,
         }
     }
 }
@@ -159,6 +164,12 @@ impl AppPreferences {
         cx.redraw_all();
     }
 
+    /// Broadcasts the current `show_mini_apps_button` value to listening widgets.
+    pub fn on_show_mini_apps_button_changed(&self, cx: &mut Cx) {
+        cx.global::<AppPreferencesGlobal>().0.show_mini_apps_button = self.show_mini_apps_button;
+        cx.action(AppPreferencesAction::ShowMiniAppsButtonChanged(self.show_mini_apps_button));
+    }
+
     /// Broadcasts every preference to listening widgets.
     ///
     /// Used upon app-state restore so every listener picks up the loaded
@@ -173,6 +184,7 @@ impl AppPreferences {
         self.on_read_receipts_privacy_changed(cx);
         self.on_mark_as_read_behavior_changed(cx);
         self.on_show_read_receipts_changed(cx);
+        self.on_show_mini_apps_button_changed(cx);
     }
 }
 
@@ -396,6 +408,7 @@ pub enum AppPreferencesAction {
     ViewModeChanged(ViewModeOverride),
     SendOnEnterChanged(bool),
     UiZoomChanged(UiZoom),
+    ShowMiniAppsButtonChanged(bool),
 }
 
 /// A `Cx` global mirror of the current [`AppPreferences`].

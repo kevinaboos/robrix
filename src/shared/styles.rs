@@ -53,6 +53,7 @@ script_mod! {
     mod.widgets.ICON_ZOOM_TO_FIT      = crate_resource("self://resources/icons/zoom_to_fit.svg")
     mod.widgets.ICON_ADD_ATTACHMENT   = crate_resource("self://resources/icons/add_attachment.svg")
     mod.widgets.ICON_FILE             = crate_resource("self://resources/icons/file.svg")
+    mod.widgets.ICON_SPARKLE          = crate_resource("self://resources/icons/sparkle.svg")
 
     mod.widgets.TITLE_TEXT = theme.font_regular {
         font_size: (13),

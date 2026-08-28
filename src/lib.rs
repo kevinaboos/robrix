@@ -69,6 +69,13 @@ pub mod tsp;
 #[cfg(not(feature = "tsp"))]
 pub mod tsp_dummy;
 
+/// All content related to Splash mini-app (a2app) support.
+#[cfg(feature = "a2app")]
+pub mod a2app;
+/// Dummy a2app module with placeholder widgets, for builds without a2app.
+#[cfg(not(feature = "a2app"))]
+pub mod a2app_dummy;
+
 
 // Matrix stuff
 pub mod sliding_sync;

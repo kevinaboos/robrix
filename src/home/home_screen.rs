@@ -305,6 +305,21 @@ script_mod! {
                             add_room_screen := mod.widgets.AddRoomScreen {}
                         }
                     }
+
+                    mini_apps_page := RoundedView {
+                        width: Fill, height: Fill
+                        // This weird margin is just to make it line up with the home_page content.
+                        margin: Inset{top: 3, left: 1, right: 0, bottom: 0}
+                        show_bg: true,
+                        draw_bg +: {
+                            color: (COLOR_PRIMARY)
+                            border_radius: 4.0
+                        }
+
+                        CachedWidget {
+                            mini_apps_screen := mod.widgets.MiniAppsScreen {}
+                        }
+                    }
                 }
             }
 
@@ -354,6 +369,14 @@ script_mod! {
 
                                 CachedWidget {
                                     add_room_screen := mod.widgets.AddRoomScreen {}
+                                }
+                            }
+
+                            mini_apps_page := View {
+                                width: Fill, height: Fill
+
+                                CachedWidget {
+                                    mini_apps_screen := mod.widgets.MiniAppsScreen {}
                                 }
                             }
                         }
@@ -543,6 +566,14 @@ impl Widget for HomeScreen {
                     Some(NavigationBarAction::GoToAddRoom) => {
                         if !matches!(app_state.selected_tab, SelectedTab::AddRoom) {
                             self.previous_selection = std::mem::replace(&mut app_state.selected_tab, SelectedTab::AddRoom);
+                            cx.action(NavigationBarAction::TabSelected(app_state.selected_tab.clone()));
+                            self.update_active_page_from_selection(cx, app_state);
+                            self.view.redraw(cx);
+                        }
+                    }
+                    Some(NavigationBarAction::GoToMiniApps) => {
+                        if !matches!(app_state.selected_tab, SelectedTab::MiniApps) {
+                            self.previous_selection = std::mem::replace(&mut app_state.selected_tab, SelectedTab::MiniApps);
                             cx.action(NavigationBarAction::TabSelected(app_state.selected_tab.clone()));
                             self.update_active_page_from_selection(cx, app_state);
                             self.view.redraw(cx);
@@ -750,6 +781,7 @@ impl HomeScreen {
                     | SelectedTab::Home => id!(home_page),
                     SelectedTab::Settings => id!(settings_page),
                     SelectedTab::AddRoom => id!(add_room_page),
+                    SelectedTab::MiniApps => id!(mini_apps_page),
                 },
             )
     }

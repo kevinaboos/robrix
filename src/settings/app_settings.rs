@@ -457,6 +457,37 @@ script_mod! {
                 body: "" // set dynamically, see `MARK_AS_READ_DESC_*`
             }
         }
+
+        // Only shown in builds with the `a2app` feature enabled.
+        mini_apps_section := View {
+            visible: false,
+            width: Fill, height: Fit
+            flow: Down,
+
+            SubsectionLabel {
+                text: "Mini Apps"
+            }
+
+            View {
+                width: Fill, height: Fit
+                flow: Down,
+                margin: Inset{left: 6},
+
+                show_mini_apps_button_toggle := ToggleFlat {
+                    margin: Inset{left: 0.5, top: 5, bottom: 10}
+                    padding: Inset { left: 15}
+                    active: true,
+                    draw_bg +: { size: 21 }
+                    text: "Show the Mini Apps button in the navigation bar"
+                    draw_text +: {
+                        text_style: mod.widgets.SETTINGS_BOLD_TEXT_STYLE {},
+                    }
+                }
+                mod.widgets.SettingsSectionDescription {
+                    body: "The Mini Apps view lets you create, run, and manage sandboxed Splash mini-apps. Hiding the button does not stop any running mini-apps."
+                }
+            }
+        }
     }
 }
 
@@ -678,6 +709,19 @@ impl AppSettings {
             }
         }
 
+        let mini_apps_toggle = self.view.check_box(cx, ids!(show_mini_apps_button_toggle));
+        if let Some(show) = mini_apps_toggle.changed(actions) {
+            if show != app_state.app_prefs.show_mini_apps_button {
+                app_state.app_prefs.show_mini_apps_button = show;
+                app_state.app_prefs.on_show_mini_apps_button_changed(cx);
+                enqueue_popup_notification(
+                    "Updated Mini Apps button visibility.",
+                    PopupKind::Success,
+                    Some(3.0),
+                );
+            }
+        }
+
         // Only process the custom thumbnail input when the user presses Enter
         // or moves key focus away from the input, not on every keypress.
         if custom_input.returned(actions).is_some() || custom_input.key_focus_lost(actions) {
@@ -731,6 +775,9 @@ impl AppSettings {
         self.view.check_box(cx, ids!(show_read_receipts_toggle))
             .set_active(cx, prefs.show_read_receipts, Animate::No);
 
+        self.view.check_box(cx, ids!(show_mini_apps_button_toggle))
+            .set_active(cx, prefs.show_mini_apps_button, Animate::No);
+
         let (small, medium, large, custom, custom_text) = match prefs.thumbnail_max_height {
             ThumbnailMaxHeight::Small => (true, false, false, false, String::new()),
             ThumbnailMaxHeight::Medium => (false, true, false, false, String::new()),
@@ -782,6 +829,9 @@ impl AppSettings {
 
         let custom_active = matches!(prefs.thumbnail_max_height, ThumbnailMaxHeight::Custom(_));
         Self::set_thumb_custom_input_read_only(cx, view, custom_active);
+
+        view.widget(cx, ids!(mini_apps_section))
+            .set_visible(cx, cfg!(feature = "a2app"));
     }
 
     fn update_show_read_receipts_description(cx: &mut Cx, view: &View, show: bool) {

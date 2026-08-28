@@ -134,6 +134,20 @@ script_mod! {
                             content := FileUploadModal {}
                         }
 
+                        // Hosts running Splash mini-apps (a2app feature);
+                        // an invisible stub in builds without it.
+                        mini_app_host_modal := Modal {
+                            content := MiniAppHostPane {}
+                        }
+
+                        // Mini-app permission prompts. No scrim dismissal:
+                        // "Not Now" is the explicit escape, so a looping
+                        // script can't nag its way to an accidental Allow.
+                        a2app_permission_modal := Modal {
+                            can_dismiss: false,
+                            content := MiniAppPermissionPrompt {}
+                        }
+
                         PopupList {}
 
                         // Tooltips must be shown in front of all other UI elements,
@@ -229,6 +243,9 @@ impl MatchEvent for App {
             log!("App::Startup: initializing TSP (Trust Spanning Protocol) module.");
             crate::tsp::tsp_init(_tokio_rt_handle).unwrap();
         }
+
+        #[cfg(feature = "a2app")]
+        crate::a2app::runtime::init();
 
         crate::temp_storage::schedule_temp_dir_cleanup();
     }
@@ -683,6 +700,13 @@ impl AppMain for App {
         #[cfg(not(feature = "tsp"))]
         crate::tsp_dummy::script_mod(vm);
 
+        // Must precede home::script_mod: the NavigationTabBar, HomeScreen,
+        // and RoomScreen DSL all reference a2app widget names.
+        #[cfg(feature = "a2app")]
+        crate::a2app::script_mod(vm);
+        #[cfg(not(feature = "a2app"))]
+        crate::a2app_dummy::script_mod(vm);
+
         crate::settings::script_mod(vm);
         // RoomInputBar depends on these Home widgets; preload them before room::script_mod.
         crate::home::location_preview::script_mod(vm);
@@ -717,6 +741,12 @@ impl AppMain for App {
 
         // Forward events to the MatchEvent trait implementation.
         self.match_event(cx, event);
+
+        // Drive the mini-app machinery: the service broker, permission
+        // prompts, and any in-flight AI generation.
+        #[cfg(feature = "a2app")]
+        crate::a2app::runtime::process(cx, &self.ui, event);
+
         let scope = &mut Scope::with_data(&mut self.app_state);
         self.ui.handle_event(cx, event, scope);
         self.handle_lifecycle_event(cx, event);
@@ -860,6 +890,9 @@ impl App {
         if let Err(e) = persistence::save_window_state(window_ref, cx) {
             error!("Failed to save window state during {reason}. Error: {e}");
         }
+
+        #[cfg(feature = "a2app")]
+        crate::a2app::runtime::persist_now();
 
         let Some(user_id) = current_user_id() else {
             log!("Skipping app state persistence during {reason}: no logged-in Matrix user.");

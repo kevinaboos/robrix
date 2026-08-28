@@ -792,13 +792,16 @@ pub enum MatrixRequest {
     /// Request to cancel an in-progress download.
     CancelDownload(OwnedMxcUri),
     /// Request to find all known rooms and spaces that match the `query` string.
-    /// 
+    ///
     /// Returns a list of matching rooms/spaces via [`MentionMatches`]
     GetMatchingRooms {
         query: String,
         request_id: u64,
         owner: WidgetUid,
     },
+    /// A matrix operation requested by a Splash mini-app (or an app share).
+    #[cfg(feature = "a2app")]
+    A2App(crate::a2app::runtime::A2AppMatrixRequest),
 }
 
 /// Submits a request to the worker thread to be executed asynchronously.
@@ -2470,6 +2473,13 @@ async fn matrix_worker_task(
                     }
                 });
             },
+
+            #[cfg(feature = "a2app")]
+            MatrixRequest::A2App(request) => {
+                let _a2app_task = Handle::current().spawn(
+                    crate::a2app::runtime::handle_matrix_request(request)
+                );
+            }
 
             MatrixRequest::PinEvent { timeline_kind, event_id, pin } => {
                 let Some((timeline, sender)) = get_timeline_and_sender(&timeline_kind) else {
