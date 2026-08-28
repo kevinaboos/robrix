@@ -669,6 +669,8 @@ script_mod! {
             Empty := mod.widgets.Empty {}
             DateDivider := mod.widgets.DateDivider {}
             ReadMarker := mod.widgets.ReadMarker {}
+            // A mini-app shared into the room (an invisible stub without `a2app`).
+            MiniAppTimelineCard := mod.widgets.MiniAppTimelineCard {}
         }
 
         // A jump to bottom button (with an unread message badge) that is shown
@@ -698,8 +700,22 @@ script_mod! {
                 width: Fill, height: Fill,
                 flow: Down,
 
-                // First, display the timeline of all messages/events.
-                timeline := mod.widgets.Timeline { }
+                // First, display the timeline of all messages/events,
+                // with the mini-app pane (hidden by default) docked to its right.
+                timeline_row := View {
+                    width: Fill, height: Fill,
+                    flow: Right,
+
+                    mini_app_dock := mod.widgets.MiniAppDock {
+                        body +: {
+                            mid +: {
+                                center +: {
+                                    timeline := mod.widgets.Timeline { }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Below that, display a typing notice when other users in the room are typing.
                 typing_notice := TypingNotice { }
@@ -1491,7 +1507,7 @@ impl Widget for RoomScreen {
                                             live_loc,
                                             item_drawn_status,
                                         ),
-                                        MsgLikeKind::Other(other) => populate_small_state_event(
+                                        MsgLikeKind::Other(other) => populate_other_message_like(
                                             cx,
                                             list,
                                             item_id,
@@ -3276,6 +3292,15 @@ impl RoomScreen {
         // The list of room members is None for now, it'll get updated later.
         self.view.room_input_bar(cx, ids!(room_input_bar))
             .set_room_context(cx, self.widget_uid(), timeline_kind.clone(), None);
+
+        // Tell the mini-app dock too: reusing this screen for a different
+        // room quits the old room's instances.
+        #[cfg(feature = "a2app")]
+        {
+            use crate::a2app::dock::MiniAppDockWidgetExt;
+            self.view.mini_app_dock(cx, ids!(mini_app_dock))
+                .set_room(cx, Some(timeline_kind.room_id().clone()), &room_name_id.display());
+        }
 
         self.show_timeline(cx);
     }
@@ -5639,6 +5664,49 @@ impl SmallStateEventContent for RoomMembershipChange {
 ///
 /// The content of the returned widget is populated with data from the
 /// given room membership change and its parent `EventTimelineItem`.
+/// Routes a custom message-like event: `rs.robius.a2app` mini-app shares get
+/// their own fixed-height card; everything else stays a small state event.
+fn populate_other_message_like(
+    cx: &mut Cx,
+    list: &mut PortalList,
+    item_id: usize,
+    timeline_kind: &TimelineKind,
+    event_tl_item: &EventTimelineItem,
+    other: &OtherMessageLike,
+    item_drawn_status: ItemDrawnStatus,
+) -> (WidgetRef, ItemDrawnStatus) {
+    #[cfg(feature = "a2app")]
+    if other.event_type().to_string() == crate::a2app::timeline_card::A2APP_EVENT_TYPE {
+        use crate::a2app::timeline_card::MiniAppTimelineCardWidgetRefExt;
+        let (item, existed) = list.item_with_existed(cx, item_id, id!(MiniAppTimelineCard));
+        if !(existed && item_drawn_status.content_drawn) {
+            let bundle_text = event_tl_item.latest_json()
+                .and_then(|raw| raw.deserialize_as::<serde_json::Value>().ok())
+                .and_then(|v| v.get("content")
+                    .and_then(|c| c.get("bundle"))
+                    .and_then(|b| b.as_str())
+                    .map(str::to_string))
+                .unwrap_or_default();
+            item.as_mini_app_timeline_card().populate(
+                cx,
+                &bundle_text,
+                event_tl_item.sender().as_str(),
+                Some(timeline_kind.room_id().clone()),
+            );
+        }
+        return (item, ItemDrawnStatus::both_drawn());
+    }
+    populate_small_state_event(
+        cx,
+        list,
+        item_id,
+        timeline_kind,
+        event_tl_item,
+        other,
+        item_drawn_status,
+    )
+}
+
 fn populate_small_state_event(
     cx: &mut Cx,
     list: &mut PortalList,
