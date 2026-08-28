@@ -1,0 +1,84 @@
+// name: Room Members
+// icon: 👥
+// tint: #6C8E3A
+// permissions: matrix-room-read
+// why-matrix-room-read: Lists who is in this room.
+
+let items = []
+
+fn load(){
+    host.request("matrix.room_members", {limit: 60}, fn(r){
+        if r.is_ok {
+            items = r.data.members
+            ui.header.set_text("" + r.data.count + " members")
+        } else {
+            items = []
+            ui.header.set_text(r.error)
+        }
+        ui.item_list.render()
+    })
+}
+
+fn on_permissions_changed(caps){
+    load()
+}
+
+fn member_line(m){
+    let line = m.name
+    if m.power > 0 { line = m.name + "  ·  power " + m.power }
+    return line
+}
+
+let _boot = start_timeout(0.05, || load())
+
+View{
+    width: Fill height: Fit flow: Down align: Align{x: 0.5}
+    col := View{
+        width: Fill{max: 460.0} height: Fit flow: Down spacing: 10 padding: 14
+        Label{
+            text: "Room Members" padding: 0 margin: 0
+            draw_text +: { color: #x1C274C text_style: theme.font_bold{font_size: 20} }
+        }
+        header := Label{
+            text: "Loading…" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 13} }
+        }
+        item_list := ScrollYView{
+            width: Fill height: 330 flow: Down spacing: 5
+            on_render: || {
+                if items.len() == 0 {
+                    Label{
+                        text: "Nothing to show. This app needs to be opened from a room, and needs your permission to read it."
+                        width: Fill padding: 0 margin: 0
+                        draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+                    }
+                } else {
+                    for it in items {
+                        RoundedView{
+                            width: Fill height: Fit flow: Down spacing: 2 padding: 10
+                            show_bg: true
+                            draw_bg +: { color: #xF0F5FF border_radius: 8.0 }
+                            Label{
+                                text: it.user_id padding: 0 margin: 0
+                                width: Fill
+                                draw_text +: { color: #x66708F text_style: theme.font_bold{font_size: 10} }
+                            }
+                            Label{
+                                text: member_line(it) width: Fill padding: 0 margin: 0
+                                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        View{
+            width: Fill height: Fit flow: Right align: Align{x: 0.5}
+            Button{
+                text: "Refresh" on_click: || load()
+                draw_text +: { color: #x1C274C }
+            }
+        }
+    }
+}

@@ -1,0 +1,95 @@
+// name: Room Info
+// icon: 🏷
+// tint: #2E86AB
+// permissions: matrix-room-info
+// why-matrix-room-info: Shows this room's name, topic, and settings.
+
+fn load(){
+    host.request("matrix.room_info", nil, fn(r){
+        if r.is_ok {
+            ui.room_name.set_text(r.data.room_name)
+            let topic = r.data.topic
+            if topic == "" { topic = "(no topic set)" }
+            ui.room_topic.set_text(topic)
+            ui.row_members.set_text("Members:  " + r.data.member_count)
+            let enc = "No"
+            if r.data.encrypted { enc = "Yes" }
+            ui.row_encrypted.set_text("Encrypted:  " + enc)
+            ui.row_join.set_text("Join rule:  " + r.data.join_rule)
+            ui.row_history.set_text("History:  " + r.data.history_visibility)
+            ui.row_id.set_text(r.data.room_id)
+            ui.note.set_text("")
+            return nil
+        }
+        ui.note.set_text(r.error)
+    })
+}
+
+fn on_permissions_changed(caps){
+    load()
+}
+
+let _boot = start_timeout(0.05, || load())
+
+View{
+    width: Fill height: Fit flow: Down align: Align{x: 0.5}
+    col := View{
+        width: Fill{max: 460.0} height: Fit flow: Down spacing: 10 padding: 14
+        Label{
+            text: "ROOM" padding: 0 margin: 0
+            draw_text +: { color: #x66708F text_style: theme.font_bold{font_size: 10} }
+        }
+        room_name := Label{
+            text: "Loading…" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x1C274C text_style: theme.font_bold{font_size: 20} }
+        }
+        room_topic := Label{
+            text: "" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 12} }
+        }
+        RoundedView{
+            width: Fill height: Fit flow: Down spacing: 8 padding: 14
+            show_bg: true
+            draw_bg +: { color: #xF0F5FF border_radius: 12.0 }
+            row_members := Label{
+                text: "Members:  …" width: Fill padding: 0 margin: 0
+                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+            }
+            row_encrypted := Label{
+                text: "Encrypted:  …" width: Fill padding: 0 margin: 0
+                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+            }
+            row_join := Label{
+                text: "Join rule:  …" width: Fill padding: 0 margin: 0
+                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+            }
+            row_history := Label{
+                text: "History:  …" width: Fill padding: 0 margin: 0
+                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+            }
+        }
+        Label{
+            text: "ROOM ID" padding: 0 margin: 0
+            draw_text +: { color: #x66708F text_style: theme.font_bold{font_size: 10} }
+        }
+        row_id := Label{
+            text: "…" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 10} }
+        }
+        View{
+            width: Fill height: Fit flow: Right align: Align{x: 0.5}
+            Button{
+                text: "Refresh" on_click: || load()
+                draw_text +: { color: #x1C274C }
+            }
+        }
+        note := Label{
+            text: "" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 11} }
+        }
+    }
+}

@@ -1,0 +1,122 @@
+// name: Room Peek
+// icon: 👀
+// tint: #4A90D9
+// permissions: matrix-room-info, matrix-room-read, matrix-room-send
+// why-matrix-room-info: Shows this room's name and member count.
+// why-matrix-room-read: Lists the latest messages in this room.
+// why-matrix-room-send: Sends the message you type into this room.
+
+let room_name = "Room Peek"
+let room_line = "Open me from a room to see its info."
+let messages = []
+
+fn show_room(){
+    ui.room_title.set_text(room_name)
+    ui.room_line.set_text(room_line)
+}
+
+fn load_room(){
+    host.request("matrix.room_info", nil, fn(r){
+        if r.is_ok {
+            room_name = r.data.room_name
+            room_line = "" + r.data.member_count + " members"
+        } else {
+            room_line = r.error
+        }
+        show_room()
+    })
+}
+
+fn load_messages(){
+    host.request("matrix.read_messages", {limit: 15}, fn(r){
+        if r.is_ok {
+            messages = r.data.messages
+        } else {
+            messages = []
+        }
+        ui.msg_list.render()
+    })
+}
+
+fn send_msg(){
+    let body = ui.msg_input.text().trim()
+    if body == "" { return nil }
+    host.request("matrix.send_message", {body: body}, fn(r){
+        if r.is_ok {
+            ui.send_note.set_text("Sent!")
+            ui.msg_input.set_text("")
+            load_messages()
+            return nil
+        }
+        ui.send_note.set_text(r.error)
+    })
+}
+
+fn on_permissions_changed(caps){
+    load_room()
+    load_messages()
+}
+
+let _boot = start_timeout(0.05, || {
+    load_room()
+    load_messages()
+})
+
+View{
+    width: Fill height: Fit flow: Down align: Align{x: 0.5}
+    col := View{
+        width: Fill{max: 520.0} height: Fit flow: Down spacing: 12 padding: 16
+        room_title := Label{
+            text: "Room Peek" padding: 0 margin: 0
+            draw_text +: { color: #x1C274C text_style: theme.font_bold{font_size: 22} }
+        }
+        room_line := Label{
+            text: "Open me from a room to see its info." padding: 0 margin: 0
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 13} }
+        }
+        msg_list := ScrollYView{
+            width: Fill height: 260 flow: Down spacing: 6
+            on_render: || {
+                if messages.len() == 0 {
+                    Label{
+                        text: "No messages to show. This app needs to be opened from a room, and needs your permission to read it."
+                        width: Fill padding: 0 margin: 0
+                        draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+                    }
+                } else {
+                    for m in messages {
+                        RoundedView{
+                            width: Fill height: Fit flow: Down spacing: 2 padding: 10
+                            show_bg: true
+                            draw_bg +: { color: #xF0F5FF border_radius: 8.0 }
+                            Label{
+                                text: m.sender padding: 0 margin: 0
+                                draw_text +: { color: #x66708F text_style: theme.font_bold{font_size: 10} }
+                            }
+                            Label{
+                                text: m.body width: Fill padding: 0 margin: 0
+                                draw_text +: { color: #x333333 text_style: theme.font_regular{font_size: 12} }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        View{
+            width: Fill height: Fit flow: Right spacing: 8 align: Align{y: 0.5}
+            msg_input := TextInput{
+                width: Fill empty_text: "Message this room…"
+                on_return: |t| send_msg()
+            }
+            Button{
+                text: "Send" on_click: || send_msg()
+                draw_text +: { color: #x1C274C }
+            }
+        }
+        send_note := Label{
+            text: "" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 12} }
+        }
+    }
+}

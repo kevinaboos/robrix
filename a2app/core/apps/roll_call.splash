@@ -1,0 +1,96 @@
+// name: Roll Call
+// icon: 🎲
+// tint: #7C6CF0
+// permissions: matrix-profile, matrix-room-send
+// why-matrix-profile: Shows who is rolling.
+// why-matrix-room-send: Posts your roll into this room.
+
+let die_a = 1
+let die_b = 1
+let roller = "You"
+
+fn roll(){
+    let t = floor(time_now() * 997.0)
+    die_a = t % 6 + 1
+    let u = floor(time_now() * 7919.0)
+    die_b = u % 6 + 1
+    ui.dice.set_text("" + die_a + "  ●  " + die_b)
+    let total = die_a + die_b
+    ui.total.set_text("total " + total)
+    ui.note.set_text("")
+}
+
+fn post(){
+    let total = die_a + die_b
+    let msg = "🎲 " + roller + " rolled " + die_a + " + " + die_b + " = " + total
+    host.request("matrix.send_message", {body: msg}, fn(r){
+        if r.is_ok {
+            ui.note.set_text("Posted to the room!")
+            return nil
+        }
+        ui.note.set_text(r.error)
+    })
+}
+
+fn load_profile(){
+    host.request("matrix.profile", nil, fn(r){
+        if r.is_ok {
+            roller = r.data.display_name
+            ui.who.set_text("Rolling as " + roller)
+            return nil
+        }
+        roller = "Someone"
+        ui.who.set_text("Rolling anonymously")
+    })
+}
+
+fn on_permissions_changed(caps){
+    load_profile()
+}
+
+let _boot = start_timeout(0.05, || load_profile())
+
+View{
+    width: Fill height: Fit flow: Down align: Align{x: 0.5}
+    col := View{
+        width: Fill{max: 420.0} height: Fit flow: Down spacing: 14 padding: 16
+        align: Align{x: 0.5}
+        Label{
+            text: "Roll Call" padding: 0 margin: 0
+            draw_text +: { color: #x1C274C text_style: theme.font_bold{font_size: 22} }
+        }
+        who := Label{
+            text: "Rolling as you" padding: 0 margin: 0
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 13} }
+        }
+        RoundedView{
+            width: Fill height: Fit align: Align{x: 0.5, y: 0.5} padding: 26 flow: Down spacing: 6
+            show_bg: true
+            draw_bg +: { color: #xF0F5FF border_radius: 12.0 }
+            dice := Label{
+                text: "1  ●  1" padding: 0 margin: 0
+                draw_text +: { color: #x1C274C text_style: theme.font_bold{font_size: 44} }
+            }
+            total := Label{
+                text: "total 2" padding: 0 margin: 0
+                draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 14} }
+            }
+        }
+        View{
+            width: Fill height: Fit flow: Right spacing: 10 align: Align{x: 0.5}
+            Button{
+                text: "Roll" on_click: || roll()
+                draw_text +: { color: #x1C274C }
+            }
+            Button{
+                text: "Post to room" on_click: || post()
+                draw_text +: { color: #x1C274C }
+            }
+        }
+        note := Label{
+            text: "" padding: 0 margin: 0
+            width: Fill
+            draw_text +: { color: #x0f88fe text_style: theme.font_regular{font_size: 12} }
+        }
+    }
+}
