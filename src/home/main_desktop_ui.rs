@@ -61,6 +61,7 @@ script_mod! {
             room_screen := mod.widgets.RoomScreen {}
             invite_screen := mod.widgets.InviteScreen {}
             space_lobby_screen := mod.widgets.SpaceLobbyScreen {}
+            mini_app_tab := mod.widgets.MiniAppTabScreen {}
         }
     }
 }
@@ -94,6 +95,11 @@ pub struct MainDesktopUI {
     /// This determines which set of rooms this dock is currently showing.
     /// If `None`, we're displaying the main home view of all rooms from any space.
     #[rust] selected_space: Option<OwnedRoomId>,
+
+    /// Mini-apps broken out into their own tabs, keyed by tab id.
+    #[cfg(feature = "a2app")]
+    #[rust]
+    open_mini_app_tabs: HashMap<LiveId, (String, matrix_sdk::ruma::OwnedRoomId)>,
 
     /// Boolean to indicate if we've drawn the MainDesktopUi previously in the desktop view.
     ///
@@ -245,6 +251,19 @@ impl MainDesktopUI {
     /// Closes a tab in the dock and selects the next most recently viewed tab.
     fn close_tab(&mut self, cx: &mut Cx, tab_id: LiveId) {
         let dock = self.view.dock(cx, ids!(dock));
+
+        // A mini-app tab: quit its instance, then close the tab itself.
+        #[cfg(feature = "a2app")]
+        if self.open_mini_app_tabs.remove(&tab_id).is_some() {
+            use crate::a2app::tab_screen::MiniAppTabScreenWidgetRefExt;
+            let widget = dock.item(tab_id);
+            if !widget.is_empty() {
+                widget.as_mini_app_tab_screen().quit(cx);
+            }
+            dock.close_tab(cx, tab_id);
+            self.init_all_visible_tabs(cx);
+            return;
+        }
 
         let Some(room_being_closed) = self.open_rooms.get(&tab_id).cloned() else {
             // This shouldn't happen (the tab should always be in the set of open rooms),
@@ -474,6 +493,51 @@ impl MainDesktopUI {
     ///
     /// It is safe to call this on an already-initialized tab, as the underlying
     /// `set_displayed_*` methods short-circuit when the content is already set.
+    #[cfg(feature = "a2app")]
+    fn mini_app_tab_id(app_id: &str, room_id: &matrix_sdk::ruma::RoomId) -> LiveId {
+        LiveId::from_str(&format!("miniapp:{app_id}:{room_id}"))
+    }
+
+    /// Creates (or focuses) the dock tab hosting one mini-app instance.
+    #[cfg(feature = "a2app")]
+    fn open_mini_app_tab(
+        &mut self,
+        cx: &mut Cx,
+        app_id: String,
+        room_id: matrix_sdk::ruma::OwnedRoomId,
+        room_name: String,
+    ) {
+        use crate::a2app::tab_screen::MiniAppTabScreenWidgetRefExt;
+        let tab_id = Self::mini_app_tab_id(&app_id, &room_id);
+        let dock = self.view.dock(cx, ids!(dock));
+        if self.open_mini_app_tabs.contains_key(&tab_id) {
+            dock.select_tab(cx, tab_id);
+            return;
+        }
+        let label = crate::a2app::runtime::with_a2app(|state| {
+            state.registry.get(&app_id).map(|m| format!("{} {}", m.icon, m.name))
+        }).flatten().unwrap_or_else(|| app_id.clone());
+
+        let (tab_bar, insert_after) = self.most_recently_selected_room.as_ref()
+            .and_then(|curr_room| dock.find_tab_bar_of_tab(curr_room.tab_id()))
+            .unwrap_or_else(|| dock.find_tab_bar_of_tab(id!(home_tab)).unwrap());
+        let new_tab_widget = dock.create_and_select_tab(
+            cx,
+            tab_bar,
+            tab_id,
+            id!(mini_app_tab),
+            label,
+            id!(CloseableTab),
+            Some(insert_after),
+        );
+        if let Some(new_widget) = new_tab_widget {
+            new_widget.as_mini_app_tab_screen().open(cx, app_id.clone(), room_id.clone(), &room_name);
+            self.open_mini_app_tabs.insert(tab_id, (app_id, room_id));
+        } else {
+            error!("BUG: failed to create a mini-app tab for {app_id}");
+        }
+    }
+
     fn init_tab_if_needed(&self, cx: &mut Cx, tab_id: LiveId) {
         if !self.open_rooms.contains_key(&tab_id) {
             return;
@@ -491,6 +555,26 @@ impl MainDesktopUI {
     /// without going through explicit tab selection (e.g., closing a tab causes
     /// the dock to auto-select an adjacent tab).
     fn init_all_visible_tabs(&self, cx: &mut Cx) {
+        // A mini-app tab restored from saved dock state has no instance
+        // behind it (isolates never persist); close such zombies.
+        #[cfg(feature = "a2app")]
+        {
+            use crate::a2app::tab_screen::MiniAppTabScreenWidgetRefExt;
+            let dock_ref = self.view.dock(cx, ids!(dock));
+            let zombies: Vec<LiveId> = {
+                let Some(mut dock) = dock_ref.borrow_mut() else { return };
+                dock.visible_items()
+                    .filter(|(tab_id, widget)| {
+                        widget.as_mini_app_tab_screen().borrow().is_some()
+                            && !self.open_mini_app_tabs.contains_key(tab_id)
+                    })
+                    .map(|(tab_id, _)| tab_id)
+                    .collect()
+            };
+            for tab_id in zombies {
+                dock_ref.close_tab(cx, tab_id);
+            }
+        }
         let dock = self.view.dock(cx, ids!(dock));
         let Some(mut dock) = dock.borrow_mut() else { return };
         for (tab_id, widget) in dock.visible_items() {
@@ -509,6 +593,34 @@ impl WidgetMatchEvent for MainDesktopUI {
                 self.close_all_tabs(cx);
                 on_close_all.notify_one();
                 continue;
+            }
+
+            #[cfg(feature = "a2app")]
+            {
+                use crate::a2app::tab_screen::{A2AppTabRequest, MiniAppTabScreenAction};
+                use crate::a2app::dock::DockCmd;
+                if let Some(A2AppTabRequest::Open { app_id, room_id, room_name }) = action.downcast_ref() {
+                    self.open_mini_app_tab(cx, app_id.clone(), room_id.clone(), room_name.clone());
+                    should_save_dock_action = true;
+                    continue;
+                }
+                if let Some(MiniAppTabScreenAction::Vacated { app_id, room_id }) = action.downcast_ref() {
+                    let tab_id = Self::mini_app_tab_id(app_id, room_id);
+                    if self.open_mini_app_tabs.remove(&tab_id).is_some() {
+                        self.view.dock(cx, ids!(dock)).close_tab(cx, tab_id);
+                        self.init_all_visible_tabs(cx);
+                        should_save_dock_action = true;
+                    }
+                    continue;
+                }
+                // An app already living in a tab: "run" focuses that tab. The
+                // room docks skip it themselves via the instance registry.
+                if let Some(DockCmd::Open { app_id, room_id }) = action.downcast_ref() {
+                    let tab_id = Self::mini_app_tab_id(app_id, room_id);
+                    if self.open_mini_app_tabs.contains_key(&tab_id) {
+                        self.view.dock(cx, ids!(dock)).select_tab(cx, tab_id);
+                    }
+                }
             }
 
             // If the currently-selected space has been changed, we must handle that
