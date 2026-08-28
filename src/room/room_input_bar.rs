@@ -538,6 +538,12 @@ impl RoomInputBar {
                     new_display_name: Some(new_display_name),
                 })
             }
+            #[cfg(feature = "a2app")]
+            SlashCommandAction::MiniApp(arg) => {
+                crate::a2app::runtime::run_miniapp_command(cx, &arg, room_id);
+            }
+            #[cfg(not(feature = "a2app"))]
+            SlashCommandAction::MiniApp(_) => {}
         }
     }
 

@@ -420,6 +420,13 @@ pub fn text_preview_of_encrypted_message(
 pub fn text_preview_of_other_message_like(
     other_msg_like: &OtherMessageLike,
 ) -> TextPreview {
+    #[cfg(feature = "a2app")]
+    if other_msg_like.event_type().to_string() == crate::a2app::timeline_card::A2APP_EVENT_TYPE {
+        return TextPreview::from((
+            String::from("shared a Splash mini-app."),
+            BeforeText::UsernameWithoutColon,
+        ));
+    }
     TextPreview::from((
         format!("[Other message type: {}]", other_msg_like.event_type()),
         BeforeText::UsernameWithColon,

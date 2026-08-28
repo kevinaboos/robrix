@@ -128,6 +128,12 @@ pub static SLASH_COMMANDS: &[SlashCommand] = &[
         description: "Leave this room",
         usage: "/leave",
     },
+    SlashCommand {
+        name: "miniapp",
+        aliases: &["miniapps"],
+        description: "Open, run, create, or share Splash mini-apps in this room",
+        usage: "/miniapp [run <app name> | share <app name> | <describe an app to create>]",
+    },
 
     // TODO: add more of the commands below, most of which need backend matrix requests:
     //
@@ -182,6 +188,11 @@ pub enum SlashCommandAction {
     },
     /// Set the current user's display name across all rooms.
     SetDisplayName(String),
+    /// Run a mini-app command in the current room: an empty string opens the
+    /// Mini Apps screen, "share <name>" shares an installed app into the room,
+    /// and anything else starts a room-scoped generation.
+    /// Only produced in builds with the `a2app` feature.
+    MiniApp(String),
 }
 
 /// Returns an iterator over all slash commands matching the given query.
@@ -214,13 +225,22 @@ pub fn parse_input(text: &str) -> SlashCommandOutcome {
         ));
     };
 
-    // Only the emoticons and /leave still make sense with nothing after them.
+    // Only the emoticons, /leave, and /miniapp still make sense with nothing after them.
     let arg = arg.trim();
     if arg.is_empty() && !matches!(
         command.name,
-        "shrug" | "tableflip" | "unflip" | "lenny" | "leave",
+        "shrug" | "tableflip" | "unflip" | "lenny" | "leave" | "miniapp",
     ) {
         return SlashCommandOutcome::Error(format!("Usage: {}", command.usage));
+    }
+
+    if command.name == "miniapp" {
+        #[cfg(feature = "a2app")]
+        return SlashCommandOutcome::Action(SlashCommandAction::MiniApp(arg.to_owned()));
+        #[cfg(not(feature = "a2app"))]
+        return SlashCommandOutcome::Error(
+            "Mini apps aren't enabled in this build of Robrix (the `a2app` feature is off).".to_owned()
+        );
     }
 
     // Commands focused on a single user all take one argument, so parse it once.
