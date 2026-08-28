@@ -1,0 +1,51 @@
+[package]
+name = "a2app-agent"
+authors = ["Kevin Boos <kevinaboos@gmail.com>"]
+description = "AI agent integration for Robrix's mini-app support: an ACP client for spawning agents like `octos acp`, the generation/repair pipeline, provider/model selection, and an optional in-process octos backend."
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/project-robius/robrix"
+version = "0.1.0"
+
+[dependencies]
+a2app-core = { path = "../core" }
+
+## Must stay on the same source/branch as Robrix's own makepad dep.
+makepad-widgets = { git = "https://github.com/makepad/makepad", branch = "dev", features = ["serde"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+## The in-process octos agent backend (feature `embedded`).
+## TEMPORARY: the fork/branch of octos-org/octos#1914, which exposes
+## `AcpCommand::factory()`, the agent factory `octos acp` serves.
+## Repin to an upstream rev once that lands.
+octos-agent = { git = "https://github.com/project-robius/octos", branch = "acp-embedding-seam", default-features = false, optional = true }
+octos-core  = { git = "https://github.com/project-robius/octos", branch = "acp-embedding-seam", optional = true }
+octos-cli   = { git = "https://github.com/project-robius/octos", branch = "acp-embedding-seam", optional = true }
+tokio  = { version = "1", features = ["rt-multi-thread"], optional = true }
+chrono = { version = "0.4", optional = true }
+
+[features]
+## Link the octos agent INTO the host binary and run it on a thread, instead of
+## spawning `octos acp` as a child process. Same agent either way; this picks
+## how it runs, not what it is. The only local option on iOS, where exec() is
+## prohibited. ROBRIX_AGENT_CMD still wins over it.
+embedded = ["dep:octos-agent", "dep:octos-core", "dep:octos-cli", "dep:tokio", "dep:chrono"]
+
+## Install the Splash dialect guide ON THE AGENT once, so each prompt can
+## point at it instead of inlining ~6KB of guide per generation.
+persistent-guide = []
+
+## Allow the agent to research with its tools (web search/fetch) before
+## answering, baking found data into the generated app as constants.
+research = []
+
+## A deterministic offline stand-in agent for tests: speaks just enough ACP,
+## picks its scenario from the prompt text. Inject via ROBRIX_AGENT_CMD.
+[[bin]]
+name = "fake_acp"
+path = "src/bin/fake_acp.rs"
+
+[lints]
+workspace = true
