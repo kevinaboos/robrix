@@ -1,0 +1,1011 @@
+diff --git a/platform/script/src/gc.rs b/platform/script/src/gc.rs
+index eaa71da1e..14e921bb5 100644
+--- a/platform/script/src/gc.rs
++++ b/platform/script/src/gc.rs
+@@ -87,44 +87,77 @@ macro_rules! set_static_val {
+     };
+ }
+ 
++/// A mark-walk value whose index is beyond its table came from ANOTHER heap.
++/// Marking must survive it (skip + report): panicking here aborts the whole
++/// host app over one corrupted isolate value.
++#[cold]
++#[inline(never)]
++fn foreign_value_skip(kind: &str, index: u32, len: usize) {
++    eprintln!(
++        "script gc: skipping foreign {kind} index {index} (table len {len}) - \
++         value was minted by a different heap"
++    );
++}
++
+ // Mark a value using split field borrows (so callers can iterate maps without snapshot Vecs)
+ macro_rules! mark_value_fields {
+     ($objects:expr, $arrays:expr, $strings:expr, $pods:expr, $handles:expr, $regexes:expr, $mark_vec:expr, $val:expr) => {
+         if let Some(ptr) = $val.as_object() {
+-            let object = &$objects[ptr];
+-            if !object.tag.is_static() && object.tag.is_alloced() {
+-                $mark_vec.push(ScriptGcMark::Object(ptr));
++            if let Some(object) = $objects.get_checked(ptr) {
++                if !object.tag.is_static() && object.tag.is_alloced() {
++                    $mark_vec.push(ScriptGcMark::Object(ptr));
++                }
++            } else {
++                foreign_value_skip("object", ptr.index, $objects.len());
+             }
+         } else if let Some(ptr) = $val.as_string() {
+-            if let Some(str_data) = $strings[ptr].as_mut() {
+-                if !str_data.tag.is_static() {
+-                    str_data.tag.set_mark();
++            if let Some(slot) = $strings.get_checked_mut(ptr) {
++                if let Some(str_data) = slot.as_mut() {
++                    if !str_data.tag.is_static() {
++                        str_data.tag.set_mark();
++                    }
+                 }
++            } else {
++                foreign_value_skip("string", ptr.index, $strings.len());
+             }
+         } else if let Some(ptr) = $val.as_array() {
+-            let array = &$arrays[ptr];
+-            if !array.tag.is_static() && array.tag.is_alloced() {
+-                $mark_vec.push(ScriptGcMark::Array(ptr));
++            if let Some(array) = $arrays.get_checked(ptr) {
++                if !array.tag.is_static() && array.tag.is_alloced() {
++                    $mark_vec.push(ScriptGcMark::Array(ptr));
++                }
++            } else {
++                foreign_value_skip("array", ptr.index, $arrays.len());
+             }
+         } else if let Some(ptr) = $val.as_pod() {
+-            let pod = &mut $pods[ptr];
+-            if !pod.tag.is_static() && pod.tag.is_alloced() {
+-                pod.tag.set_mark();
++            if let Some(pod) = $pods.get_checked_mut(ptr) {
++                if !pod.tag.is_static() && pod.tag.is_alloced() {
++                    pod.tag.set_mark();
++                }
++            } else {
++                foreign_value_skip("pod", ptr.index, $pods.len());
+             }
+         } else if let Some(ptr) = $val.as_handle() {
+             // Skip handle index 0 - it's the "null" handle (ScriptHandle::ZERO)
+             if ptr.index != 0 {
+-                if let Some(handle_data) = $handles[ptr].as_mut() {
+-                    if !handle_data.tag.is_static() {
+-                        handle_data.tag.set_mark();
++                if let Some(slot) = $handles.get_checked_mut(ptr) {
++                    if let Some(handle_data) = slot.as_mut() {
++                        if !handle_data.tag.is_static() {
++                            handle_data.tag.set_mark();
++                        }
+                     }
++                } else {
++                    foreign_value_skip("handle", ptr.index, $handles.len());
+                 }
+             }
+         } else if let Some(ptr) = $val.as_regex() {
+-            if let Some(regex_data) = $regexes[ptr].as_mut() {
+-                if !regex_data.tag.is_static() {
+-                    regex_data.tag.set_mark();
++            if let Some(slot) = $regexes.get_checked_mut(ptr) {
++                if let Some(regex_data) = slot.as_mut() {
++                    if !regex_data.tag.is_static() {
++                        regex_data.tag.set_mark();
++                    }
+                 }
++            } else {
++                foreign_value_skip("regex", ptr.index, $regexes.len());
+             }
+         }
+     };
+diff --git a/platform/script/src/gen_index.rs b/platform/script/src/gen_index.rs
+index 5e4aebc09..cbf5be43c 100644
+--- a/platform/script/src/gen_index.rs
++++ b/platform/script/src/gen_index.rs
+@@ -251,6 +251,32 @@ fn check_generation<R: GenRef>(
+     }
+ }
+ 
++/// An index past len can't come from this GenVec (len never shrinks), so it is
++/// a value minted by ANOTHER heap. Name the table and the numbers so the
++/// cross-heap route can be identified from the panic alone.
++#[cold]
++#[inline(never)]
++fn foreign_index_panic<T>(index: u32, len: usize) -> ! {
++    panic!(
++        "GenVec<{}> index {} out of bounds (len {}): value belongs to a different heap",
++        std::any::type_name::<T>(),
++        index,
++        len
++    );
++}
++
++/// Bounds-checked accessors for paths that must SURVIVE a foreign-heap ref
++/// (e.g. the GC mark walk): a miss means the value was minted by another
++/// heap, and the caller skips it instead of panicking.
++impl<T> GenVec<T> {
++    pub fn get_checked<R: GenRef>(&self, r: R) -> Option<&T> {
++        self.slots.get(r.index() as usize).map(|slot| &slot.data)
++    }
++    pub fn get_checked_mut<R: GenRef>(&mut self, r: R) -> Option<&mut T> {
++        self.slots.get_mut(r.index() as usize).map(|slot| &mut slot.data)
++    }
++}
++
+ /// Index by a GenRef type - checked access
+ impl<T, R: GenRef> std::ops::Index<R> for GenVec<T> {
+     type Output = T;
+@@ -258,7 +284,9 @@ impl<T, R: GenRef> std::ops::Index<R> for GenVec<T> {
+     #[cfg(feature = "check_gen")]
+     #[inline]
+     fn index(&self, r: R) -> &Self::Output {
+-        let slot = &self.slots[r.index() as usize];
++        let Some(slot) = self.slots.get(r.index() as usize) else {
++            foreign_index_panic::<T>(r.index(), self.slots.len());
++        };
+         check_generation::<R>(
+             slot.generation,
+             r.generation(),
+@@ -280,7 +308,10 @@ impl<T, R: GenRef> std::ops::IndexMut<R> for GenVec<T> {
+     #[cfg(feature = "check_gen")]
+     #[inline]
+     fn index_mut(&mut self, r: R) -> &mut Self::Output {
+-        let slot = &mut self.slots[r.index() as usize];
++        let len = self.slots.len();
++        let Some(slot) = self.slots.get_mut(r.index() as usize) else {
++            foreign_index_panic::<T>(r.index(), len);
++        };
+         check_generation::<R>(
+             slot.generation,
+             r.generation(),
+diff --git a/widgets/src/splash.rs b/widgets/src/splash.rs
+index 3bf815751..67abd9455 100644
+--- a/widgets/src/splash.rs
++++ b/widgets/src/splash.rs
+@@ -174,15 +174,18 @@ fn eval_body(&mut self, cx: &mut Cx) {
+         };
+ 
+         let vm_id = self.vm_id;
+-        let new_view = cx.with_script_vm_id(vm_id, |vm| {
+-            let value = vm.with_instruction_limit(SPLASH_EVAL_INSTRUCTION_LIMIT, |vm| {
+-                vm.eval_with_append_source(script_mod, &code, NIL.into())
++        let mut new_view = None;
++        crate::widget_async::contain_isolate_panic("app source eval", || {
++            new_view = cx.with_script_vm_id(vm_id, |vm| {
++                let value = vm.with_instruction_limit(SPLASH_EVAL_INSTRUCTION_LIMIT, |vm| {
++                    vm.eval_with_append_source(script_mod, &code, NIL.into())
++                });
++                if !value.is_err() && !value.is_nil() {
++                    Some(View::script_from_value(vm, value))
++                } else {
++                    None
++                }
+             });
+-            if !value.is_err() && !value.is_nil() {
+-                Some(View::script_from_value(vm, value))
+-            } else {
+-                None
+-            }
+         });
+ 
+         if let Some(view) = new_view {
+@@ -280,7 +283,9 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
+         code: String::new(),
+         values: vec![],
+     };
+-    let errors = cx.with_script_vm_id(vm_id, |vm| {
++    let mut errors_out = vec!["the script crashed its isolate during validation".to_string()];
++    crate::widget_async::contain_isolate_panic("validation eval", || {
++    errors_out = cx.with_script_vm_id(vm_id, |vm| {
+         // Capture instead of logging: mid-eval errors otherwise go straight to
+         // the error log (see `ScriptVm::take_errors`) and can't be returned.
+         vm.bx.captured_errors = Some(Vec::new());
+@@ -300,13 +305,14 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
+         }
+         errors
+     });
++    });
+     crate::widget_async::mark_splash_isolate_dead(vm_id);
+     // Reclaim NOW (stops the isolate's top-level timers and drops its sandbox
+     // root binding) so nothing can re-create the scratch dir after we remove
+     // it; then delete last, and it stays deleted.
+     crate::widget_async::gc_dead_splash_isolates(cx);
+     let _ = std::fs::remove_dir_all(&scratch);
+-    errors
++    errors_out
+ }
+ 
+ impl WidgetNode for Splash {
+@@ -391,7 +397,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
+         let Some(scope) = self.body_scope(cx) else {
+             return false;
+         };
+-        cx.with_script_vm_id(self.vm_id, |vm| {
++        let mut called = false;
++        crate::widget_async::contain_isolate_panic("script hook call", || {
++        called = cx.with_script_vm_id(self.vm_id, |vm| {
+             // NoTrap: this is an existence probe for an OPTIONAL hook. A
+             // trapping lookup queues a NotFound into the error log even though
+             // the miss is handled right here — every host broadcast (e.g.
+@@ -405,7 +413,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
+                 vm.call(fnval, args);
+             });
+             true
+-        })
++        });
++        });
++        called
+     }
+ 
+     /// Like [`Self::call_script_fn`], but with string arguments — those are
+@@ -416,7 +426,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
+         let Some(scope) = self.body_scope(cx) else {
+             return false;
+         };
+-        cx.with_script_vm_id(self.vm_id, |vm| {
++        let mut called = false;
++        crate::widget_async::contain_isolate_panic("script hook call", || {
++        called = cx.with_script_vm_id(self.vm_id, |vm| {
+             let fnval = vm.bx.heap.scope_value(scope, name, NoTrap);
+             if fnval.is_nil() || fnval.is_err() {
+                 return false;
+@@ -429,7 +441,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
+                 vm.call(fnval, &vals);
+             });
+             true
+-        })
++        });
++        });
++        called
+     }
+ 
+     /// Sets whether this Splash's isolate gets the networking runtime. Must be
+diff --git a/widgets/src/splash_host.rs b/widgets/src/splash_host.rs
+index 43fb8fbd3..6b4d3861b 100644
+--- a/widgets/src/splash_host.rs
++++ b/widgets/src/splash_host.rs
+@@ -153,6 +153,7 @@ pub fn splash_host_respond(
+         return SplashRespondOutcome::IsolateGone;
+     };
+     let mut delivered = true;
++    let contained = crate::widget_async::contain_isolate_panic("host request callback", || {
+     cx.with_script_vm_id(vm_id, |vm| {
+         // Prove we landed in the heap this request came from before minting
+         // anything in it. `vm_id` is looked up through a map; if that map is
+@@ -181,7 +182,20 @@ pub fn splash_host_respond(
+         vm.with_instruction_limit(WIDGET_SCRIPT_INSTRUCTION_LIMIT, |vm| {
+             vm.call(callback.as_object().into(), &[obj.into()]);
+         });
++        // A callback that errors (or pauses and errors later on its own
++        // thread) leaves its errors queued on the trap; nothing else drains
++        // this entry path, so they used to vanish and a broken callback
++        // looked like a delivered-but-inert answer.
++        for err in vm.take_errors() {
++            crate::makepad_draw::error!("splash host callback error: {err}");
++        }
++    });
+     });
++    if !contained {
++        // The callback panicked; the panic was contained and that isolate is
++        // suspect, but the host app carries on.
++        return SplashRespondOutcome::Delivered;
++    }
+     if !delivered {
+         return SplashRespondOutcome::IsolateGone;
+     }
+diff --git a/widgets/src/widget_async.rs b/widgets/src/widget_async.rs
+index 08271c416..ad446cc17 100644
+--- a/widgets/src/widget_async.rs
++++ b/widgets/src/widget_async.rs
+@@ -281,7 +281,11 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
+     let outer_vm = cx.script_vm.take();
+     cx.script_vm = isolated.vm.take();
+ 
+-    let out = f(cx);
++    // A panic inside isolate script must not skip the restore below, or the
++    // app VM stays swapped out and every later script access resolves against
++    // the wrong heap. Catch, restore, then let the panic continue to the
++    // containment layer at the entry funnel.
++    let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut *cx)));
+ 
+     isolated.vm = cx.script_vm.take();
+     cx.script_vm = outer_vm;
+@@ -293,7 +297,30 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
+         .vms
+         .insert(vm_id, isolated);
+ 
+-    out
++    match out {
++        Ok(out) => out,
++        Err(panic) => std::panic::resume_unwind(panic),
++    }
++}
++
++/// Runs isolate-side work and CONTAINS any panic it raises: the host app must
++/// survive anything a mini-app isolate does. Returns false when a panic was
++/// contained; the isolate is left degraded (a Force Stop cleans it up).
++pub fn contain_isolate_panic(what: &str, f: impl FnOnce()) -> bool {
++    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
++        Ok(()) => true,
++        Err(panic) => {
++            let msg = panic
++                .downcast_ref::<String>()
++                .map(|s| s.as_str())
++                .or_else(|| panic.downcast_ref::<&str>().copied())
++                .unwrap_or("(non-string panic)");
++            crate::makepad_platform::error!(
++                "contained a mini-app isolate panic in {what}: {msg}"
++            );
++            false
++        }
++    }
+ }
+ 
+ /// A Splash isolate runs untrusted-ish user script on the UI thread; cap how long any
+@@ -424,10 +451,15 @@ fn with_script_vm_id<R>(&mut self, vm_id: SplashVmId, f: impl FnOnce(&mut Script
+             return self.with_vm(f);
+         }
+         if vm_id == MAIN_SPLASH_VM_ID {
+-            debug_assert_eq!(
+-                current, MAIN_SPLASH_VM_ID,
+-                "main-VM script call while isolate {current:?} is installed on Cx"
+-            );
++            if current != MAIN_SPLASH_VM_ID {
++                // Running main-VM work here would execute against the
++                // installed ISOLATE's heap and plant its values there; the
++                // fault would only surface later, in a GC, with nothing left
++                // pointing at this call.
++                error!(
++                    "BUG: main-VM script call while isolate {current:?} is installed on Cx"
++                );
++            }
+             return self.with_vm(f);
+         }
+ 
+@@ -445,10 +477,11 @@ fn with_script_vm_id_thread<R>(
+             return self.with_vm_thread(thread_id, f);
+         }
+         if vm_id == MAIN_SPLASH_VM_ID {
+-            debug_assert_eq!(
+-                current, MAIN_SPLASH_VM_ID,
+-                "main-VM script call while isolate {current:?} is installed on Cx"
+-            );
++            if current != MAIN_SPLASH_VM_ID {
++                error!(
++                    "BUG: main-VM script call while isolate {current:?} is installed on Cx"
++                );
++            }
+             return self.with_vm_thread(thread_id, f);
+         }
+ 
+@@ -569,9 +602,19 @@ pub(crate) fn update_global_ui_handle(cx: &mut Cx, root_uid: WidgetUid) {
+     if cx.global::<CxWidgetAsync>().global_ui_root_uid == root_uid {
+         return;
+     }
++    // `with_vm` below runs against whatever VM is installed; with an isolate
++    // installed this would mint the main `ui` handle in the isolate's heap
++    // and leave current_vm_id clobbered to MAIN for the rest of the isolate's
++    // execution. Defer to the next main-context call instead.
++    if cx.global::<CxWidgetAsync>().current_vm_id != MAIN_SPLASH_VM_ID {
++        error!(
++            "BUG: update_global_ui_handle while isolate {:?} is installed; deferred",
++            cx.global::<CxWidgetAsync>().current_vm_id
++        );
++        return;
++    }
+     cx.global::<CxWidgetAsync>().global_ui_root_uid = root_uid;
+     cx.with_vm(|vm| {
+-        vm.cx_mut().global::<CxWidgetAsync>().current_vm_id = MAIN_SPLASH_VM_ID;
+         let ui_handle = vm.build_ui_handle_for_uid(root_uid);
+         vm.set_injected_global(id!(ui), ui_handle);
+     });
+@@ -917,9 +960,20 @@ fn widget_to_script_async_call_fwd(
+         from_method: LiveId,
+     ) -> ScriptAsyncResult {
+         let Some(vm_id) = self.script_ref_vm_id(&source) else {
++            error!(
++                "widget->script call {:?} dropped: widget {:?} source belongs to a reclaimed isolate heap",
++                from_method, target_uid
++            );
+             return ScriptAsyncResult::MethodNotFound;
+         };
+         self.with_script_vm_id(vm_id, |vm| {
++            let src_key = source.heap_key();
++            if src_key != 0 && src_key != vm.bx.heap.heap_key() {
++                error!(
++                    "BUG: widget->script call {:?} for widget {:?} routed to vm {:?} whose heap does not own the widget's source",
++                    from_method, target_uid, vm_id
++                );
++            }
+             vm.widget_to_script_async_call_fwd(
+                 target_uid,
+                 script_async,
+@@ -967,9 +1021,20 @@ fn widget_to_script_call_fwd(
+         args: ScriptValue,
+     ) {
+         let Some(vm_id) = self.script_ref_vm_id(&source) else {
++            error!(
++                "widget->script call dropped: widget {:?} source belongs to a reclaimed isolate heap",
++                target_uid
++            );
+             return;
+         };
+         self.with_script_vm_id(vm_id, |vm| {
++            let src_key = source.heap_key();
++            if src_key != 0 && src_key != vm.bx.heap.heap_key() {
++                error!(
++                    "BUG: widget->script call for widget {:?} routed to vm {:?} whose heap does not own the widget's source",
++                    target_uid, vm_id
++                );
++            }
+             vm.widget_to_script_call_fwd(target_uid, me, source, script_fn, args);
+         });
+     }
+@@ -1171,22 +1236,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+             .pop_front();
+         if let Some(req) = req {
+             progressed = true;
+-            cx.with_script_vm_id(req.vm_id, |vm| {
+-                if req.script_fn.as_object() != ScriptObject::ZERO {
+-                    let ui_handle = vm.build_ui_handle_for_uid(req.target_uid);
+-                    let call_args = vm.make_call_args_object_with_context(
+-                        req.source.as_object(),
+-                        ui_handle,
+-                        req.args,
+-                    );
+-                    let _ = vm.with_instruction_limit(WIDGET_SCRIPT_INSTRUCTION_LIMIT, |vm| {
+-                        vm.call_with_args_object_with_me(
+-                            req.script_fn.clone().into(),
+-                            call_args,
+-                            req.me,
+-                        )
+-                    });
+-                }
++            contain_isolate_panic("widget->script dispatch", || {
++                cx.with_script_vm_id(req.vm_id, |vm| {
++                    if req.script_fn.as_object() != ScriptObject::ZERO {
++                        let ui_handle = vm.build_ui_handle_for_uid(req.target_uid);
++                        let call_args = vm.make_call_args_object_with_context(
++                            req.source.as_object(),
++                            ui_handle,
++                            req.args,
++                        );
++                        let _ = vm.with_instruction_limit(WIDGET_SCRIPT_INSTRUCTION_LIMIT, |vm| {
++                            vm.call_with_args_object_with_me(
++                                req.script_fn.clone().into(),
++                                call_args,
++                                req.me,
++                            )
++                        });
++                    }
++                });
+             });
+             continue;
+         }
+@@ -1197,8 +1264,15 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+             .pop_front();
+         if let Some(req) = req {
+             progressed = true;
++            contain_isolate_panic("script->widget dispatch", || {
+             let ret = cx.with_script_vm_id_thread(req.vm_id, req.caller_thread, |vm| {
+                 let widget_ref = vm.with_cx(|cx| cx.widget_tree().widget(req.target_uid));
++                if widget_ref.is_empty() {
++                    error!(
++                        "script->widget call {:?} dropped: widget {:?} not in the widget tree (vm {:?})",
++                        req.method, req.target_uid, req.vm_id
++                    );
++                }
+                 match widget_ref.script_call(vm, req.method, req.args.as_object().into()) {
+                     ScriptAsyncResult::Return(value) => value,
+                     ScriptAsyncResult::Pending => NIL,
+@@ -1228,15 +1302,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+             if !is_paused {
+                 on_widget_script_thread_completed(cx, req.vm_id, req.caller_thread, result);
+             }
++            });
+             continue;
+         }
+ 
+         let done = cx.global::<CxWidgetAsync>().done.pop_front();
+         if let Some(done) = done {
+             progressed = true;
+-            cx.with_script_vm_id(done.vm_id, |vm| {
+-                let widget_ref = vm.with_cx(|cx| cx.widget_tree().widget(done.target_uid));
+-                widget_ref.script_result(vm, done.id, done.result);
++            contain_isolate_panic("async result delivery", || {
++                cx.with_script_vm_id(done.vm_id, |vm| {
++                    let widget_ref = vm.with_cx(|cx| cx.widget_tree().widget(done.target_uid));
++                    if widget_ref.is_empty() {
++                        error!(
++                            "script_result dropped: widget {:?} not in the widget tree (vm {:?})",
++                            done.target_uid, done.vm_id
++                        );
++                    }
++                    widget_ref.script_result(vm, done.id, done.result);
++                });
+             });
+             continue;
+         }
+@@ -1264,8 +1347,10 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+         if let Some(iso) = state.isolated_vms.vms.get_mut(&SplashVmId(next)) {
+             if let Some(bx) = iso.vm.as_mut() {
+                 if bx.heap.needs_gc() {
+-                    bx.heap.mark(&bx.threads, &bx.code);
+-                    bx.heap.sweep(false);
++                    contain_isolate_panic("isolate gc", || {
++                        bx.heap.mark(&bx.threads, &bx.code);
++                        bx.heap.sweep(false);
++                    });
+                 }
+             }
+         }
+@@ -1297,9 +1382,11 @@ fn script_timer_dispatch_hook(cx: &mut Cx, timer: &CxScriptTimer, time: ScriptVa
+         Some(vm_id) => {
+             // Same budget/limit as any other isolate entry, so a runaway timer callback
+             // can't hang the host.
+-            cx.with_script_vm_id(vm_id, |vm| {
+-                vm.with_instruction_limit(WIDGET_SCRIPT_INSTRUCTION_LIMIT, |vm| {
+-                    vm.call(timer.callback.as_object().into(), &[time]);
++            contain_isolate_panic("timer callback", || {
++                cx.with_script_vm_id(vm_id, |vm| {
++                    vm.with_instruction_limit(WIDGET_SCRIPT_INSTRUCTION_LIMIT, |vm| {
++                        vm.call(timer.callback.as_object().into(), &[time]);
++                    });
+                 });
+             });
+             true
+@@ -1335,3 +1422,339 @@ fn pump_widget_async_hook(host: &mut dyn Any) -> bool {
+         .map(pump_widget_async)
+         .unwrap_or(false)
+ }
++
++#[cfg(test)]
++mod isolate_tests {
++    use super::*;
++    use crate::splash::Splash;
++    use crate::view::View;
++    use crate::widget_tree::set_ui_root;
++
++    const BODY: &str = r#"
++    let items = []
++    fn go(){ ui.item_list.render() }
++    fn load(){
++        host.request("matrix.room_threads", {limit: 20}, fn(r){
++            if r.is_ok {
++                items = r.data.threads
++                ui.header.set_text("" + items.len() + " threads")
++            } else {
++                items = []
++                ui.header.set_text(r.error)
++            }
++            ui.item_list.render()
++        })
++    }
++    header := Label{ text: "Loading" }
++    item_list := View{ height: Fit, on_render: || {
++        for it in items {
++            Label{text: it.body}
++        }
++    } }
++"#;
++
++    fn item_list_children(cx: &Cx, host: &WidgetRef) -> usize {
++        let w = host.widget(cx, &[live_id!(item_list)]);
++        w.borrow::<View>()
++            .map(|v| v.children.len())
++            .unwrap_or(usize::MAX)
++    }
++
++    fn render_cycle(cx: &mut Cx, host: &WidgetRef, json: &'static str) -> usize {
++        let splash = host.widget(cx, &[live_id!(splash)]);
++        let item_list = host.widget(cx, &[live_id!(item_list)]);
++        render_cycle_no_heal(cx, &splash, &item_list, json)
++    }
++
++    // Triggers load()+respond via direct WidgetRefs, so no tree lookup can
++    // re-seed graph nodes; this is the app's own timer/callback view of the
++    // world, where ui.X resolution relies purely on the existing graph.
++    fn render_cycle_no_heal(
++        cx: &mut Cx,
++        splash: &WidgetRef,
++        item_list: &WidgetRef,
++        json: &'static str,
++    ) -> usize {
++        let called = splash
++            .borrow_mut::<Splash>()
++            .expect("splash widget")
++            .call_script_fn(cx, live_id!(load), &[]);
++        assert!(called, "load() not found in body scope");
++        pump_widget_async(cx);
++        let reqs = crate::splash_host::take_splash_host_requests();
++        assert_eq!(reqs.len(), 1, "expected one bridge request");
++        let req = &reqs[0];
++        let outcome =
++            crate::splash_host::splash_host_respond(cx, req.heap_key, req.req_id, Ok(json));
++        eprintln!("### respond outcome {outcome:?}");
++        pump_widget_async(cx);
++        item_list
++            .borrow::<View>()
++            .map(|v| v.children.len())
++            .unwrap_or(usize::MAX)
++    }
++
++    #[test]
++    fn force_stop_midflight_then_stale_respond() {
++        let mut cx = Cx::new(Box::new(|_, _| {}));
++        let template = cx.with_vm(|vm| {
++            crate::script_mod(vm);
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                use mod.widgets.*
++                View{ splash := Splash{} }
++            });
++            let obj = v.as_object().expect("template did not eval to an object");
++            vm.bx.heap.new_object_ref(obj)
++        });
++        let pane = cx.with_vm(|vm| {
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                View{ height: Fit }
++            });
++            WidgetRef::script_from_value(vm, v)
++        });
++        set_ui_root(&mut cx, &pane);
++        let pane_uid = pane.widget_uid();
++
++        // run 1: request made, ANSWERED, but force-stopped BEFORE the pump
++        // (paused callback thread + queued ui calls die with the isolate)
++        let host = cx.with_vm(|vm| WidgetRef::script_from_value(vm, template.as_object().into()));
++        cx.widget_tree_insert_child_deep(pane_uid, live_id!(apphost), host.clone());
++        host.widget(&cx, &[live_id!(splash)]).set_text(&mut cx, BODY);
++        let hk1 = host
++            .widget(&cx, &[live_id!(splash)])
++            .borrow_mut::<Splash>()
++            .unwrap()
++            .isolate_heap_key(&mut cx)
++            .unwrap();
++        let _ = host.widget(&cx, &[live_id!(item_list)]);
++        assert!(host
++            .widget(&cx, &[live_id!(splash)])
++            .borrow_mut::<Splash>()
++            .unwrap()
++            .call_script_fn(&mut cx, live_id!(load), &[]));
++        pump_widget_async(&mut cx);
++        // a second request left UNANSWERED at force stop
++        assert!(host
++            .widget(&cx, &[live_id!(splash)])
++            .borrow_mut::<Splash>()
++            .unwrap()
++            .call_script_fn(&mut cx, live_id!(load), &[]));
++        pump_widget_async(&mut cx);
++        let reqs = crate::splash_host::take_splash_host_requests();
++        assert_eq!(reqs.len(), 2);
++        // answer the FIRST request but do NOT pump: callback ran, ui calls queued
++        let outcome = crate::splash_host::splash_host_respond(
++            &mut cx,
++            reqs[0].heap_key,
++            reqs[0].req_id,
++            Ok(r#"{"threads":[{"sender":"a","body":"one"}]}"#),
++        );
++        eprintln!("### run1 respond outcome {outcome:?}");
++        // force stop NOW, queues still full
++        drop(host);
++        gc_dead_splash_isolates(&mut cx);
++
++        // run 2
++        let host2 = cx.with_vm(|vm| WidgetRef::script_from_value(vm, template.as_object().into()));
++        cx.widget_tree_insert_child_deep(pane_uid, live_id!(apphost), host2.clone());
++        host2.widget(&cx, &[live_id!(splash)]).set_text(&mut cx, BODY);
++        let hk2 = host2
++            .widget(&cx, &[live_id!(splash)])
++            .borrow_mut::<Splash>()
++            .unwrap()
++            .isolate_heap_key(&mut cx)
++            .unwrap();
++        eprintln!("### heap reuse: hk1={hk1} hk2={hk2} same={}", hk1 == hk2);
++
++        // stale respond for the dead isolate's outstanding request arrives late
++        let stale = crate::splash_host::splash_host_respond(
++            &mut cx,
++            reqs[1].heap_key,
++            reqs[1].req_id,
++            Ok(r#"{"threads":[{"sender":"z","body":"stale"}]}"#),
++        );
++        eprintln!("### stale respond outcome {stale:?}");
++
++        let n = render_cycle(
++            &mut cx,
++            &host2,
++            r#"{"threads":[{"sender":"a","body":"one"},{"sender":"b","body":"two"}]}"#,
++        );
++        eprintln!("### run2 children = {n}");
++
++        // GC everything hard, hunting the cross-heap panic
++        cx.with_vm(|vm| vm.gc());
++        let ids: Vec<SplashVmId> = cx
++            .global::<CxWidgetAsync>()
++            .isolated_vms
++            .vms
++            .keys()
++            .copied()
++            .collect();
++        for id in ids {
++            if let Some(iso) = cx.global::<CxWidgetAsync>().isolated_vms.vms.get_mut(&id) {
++                if let Some(bx) = iso.vm.as_mut() {
++                    bx.heap.mark(&bx.threads, &bx.code);
++                    bx.heap.sweep(false);
++                }
++            }
++        }
++        assert_eq!(n, 2, "run2 render did not commit");
++    }
++
++    #[test]
++    fn pane_refresh_drops_inserted_host() {
++        let mut cx = Cx::new(Box::new(|_, _| {}));
++        let template = cx.with_vm(|vm| {
++            crate::script_mod(vm);
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                use mod.widgets.*
++                View{ splash := Splash{} }
++            });
++            let obj = v.as_object().expect("template did not eval to an object");
++            vm.bx.heap.new_object_ref(obj)
++        });
++        let pane = cx.with_vm(|vm| {
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                View{ height: Fit }
++            });
++            WidgetRef::script_from_value(vm, v)
++        });
++        set_ui_root(&mut cx, &pane);
++        let pane_uid = pane.widget_uid();
++
++        let host = cx.with_vm(|vm| WidgetRef::script_from_value(vm, template.as_object().into()));
++        cx.widget_tree_insert_child_deep(pane_uid, live_id!(apphost), host.clone());
++        host.widget(&cx, &[live_id!(splash)]).set_text(&mut cx, BODY);
++        let n = render_cycle(
++            &mut cx,
++            &host,
++            r#"{"threads":[{"sender":"a","body":"one"}]}"#,
++        );
++        eprintln!("### baseline children = {n}");
++        assert_eq!(n, 1);
++
++        let splash = host.widget(&cx, &[live_id!(splash)]);
++        let item_list = host.widget(&cx, &[live_id!(item_list)]);
++
++        let topdown0 = !cx
++            .widget_tree()
++            .find_within(pane_uid, &[live_id!(item_list)])
++            .is_empty();
++        eprintln!("### before flush: top-down find from pane: {topdown0}");
++
++        // what teardown / any structural event does to the owner
++        cx.widget_tree_mark_dirty(pane_uid);
++        // any flood search flushes with mark_structure_dirty=true
++        let _ = cx.widget_tree().root_uid();
++        let in_graph = !cx.widget_tree().widget(splash.widget_uid()).is_empty();
++        let topdown = !cx
++            .widget_tree()
++            .find_within(pane_uid, &[live_id!(item_list)])
++            .is_empty();
++        eprintln!("### after flush: splash node in graph: {in_graph}, top-down find from pane: {topdown}");
++
++        let n = render_cycle_no_heal(
++            &mut cx,
++            &splash,
++            &item_list,
++            r#"{"threads":[{"sender":"a","body":"one"},{"sender":"b","body":"two"}]}"#,
++        );
++        eprintln!("### after pane refresh children = {n}");
++        assert_eq!(n, 2, "render after pane refresh did not commit");
++    }
++
++    #[test]
++    fn second_isolate_render_commits() {
++        let mut cx = Cx::new(Box::new(|_, _| {}));
++        let template = cx.with_vm(|vm| {
++            crate::script_mod(vm);
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                use mod.widgets.*
++                View{ splash := Splash{} }
++            });
++            let obj = v.as_object().expect("template did not eval to an object");
++            vm.bx.heap.new_object_ref(obj)
++        });
++        let pane = cx.with_vm(|vm| {
++            let v = vm.eval(crate::makepad_script::script! {
++                use mod.prelude.widgets.*
++                View{ height: Fit }
++            });
++            WidgetRef::script_from_value(vm, v)
++        });
++        set_ui_root(&mut cx, &pane);
++        let pane_uid = pane.widget_uid();
++
++        for run in 0..2 {
++            let host =
++                cx.with_vm(|vm| WidgetRef::script_from_value(vm, template.as_object().into()));
++            cx.widget_tree_insert_child_deep(pane_uid, live_id!(apphost), host.clone());
++            host.widget(&cx, &[live_id!(splash)]).set_text(&mut cx, BODY);
++            let hk = host
++                .widget(&cx, &[live_id!(splash)])
++                .borrow_mut::<Splash>()
++                .unwrap()
++                .isolate_heap_key(&mut cx);
++            eprintln!("### run {run}: heap_key {hk:?}");
++            // warm the graph so the confined ui getter can resolve while the
++            // Splash itself is mut-borrowed below
++            let warm = host.widget(&cx, &[live_id!(item_list)]);
++            assert!(!warm.is_empty(), "run {run}: item_list not found in tree");
++            drop(warm);
++            let called = host
++                .widget(&cx, &[live_id!(splash)])
++                .borrow_mut::<Splash>()
++                .expect("splash widget")
++                .call_script_fn(&mut cx, live_id!(load), &[]);
++            assert!(called, "run {run}: load() not found in body scope");
++            pump_widget_async(&mut cx);
++            // the host drains and answers the bridge request, like robrix's broker
++            let reqs = crate::splash_host::take_splash_host_requests();
++            assert_eq!(reqs.len(), 1, "run {run}: expected one bridge request");
++            let req = &reqs[0];
++            let outcome = crate::splash_host::splash_host_respond(
++                &mut cx,
++                req.heap_key,
++                req.req_id,
++                Ok(r#"{"threads":[{"sender":"a","body":"one"},{"sender":"b","body":"two"}]}"#),
++            );
++            eprintln!("### run {run}: respond outcome {outcome:?}");
++            pump_widget_async(&mut cx);
++            let n = item_list_children(&cx, &host);
++            eprintln!("### run {run}: item_list children = {n}");
++
++            // aggressive GC afterwards, hunting the cross-heap panic
++            cx.with_vm(|vm| vm.gc());
++            {
++                let state = cx.global::<CxWidgetAsync>();
++                let ids: Vec<SplashVmId> =
++                    state.isolated_vms.vms.keys().copied().collect();
++                for id in ids {
++                    if let Some(iso) = cx
++                        .global::<CxWidgetAsync>()
++                        .isolated_vms
++                        .vms
++                        .get_mut(&id)
++                    {
++                        if let Some(bx) = iso.vm.as_mut() {
++                            bx.heap.mark(&bx.threads, &bx.code);
++                            bx.heap.sweep(false);
++                        }
++                    }
++                }
++            }
++            assert!(n >= 1, "run {run}: render did not commit (children={n})");
++
++            // force stop: drop every strong ref, then reclaim like the
++            // end-of-cycle pump does
++            drop(host);
++            pump_widget_async(&mut cx);
++        }
++    }
++}
+diff --git a/widgets/src/widget_tree.rs b/widgets/src/widget_tree.rs
+index 18234b8bf..99ff851aa 100644
+--- a/widgets/src/widget_tree.rs
++++ b/widgets/src/widget_tree.rs
+@@ -143,6 +143,12 @@ struct GraphNode {
+     skip_search: bool,
+     parent: Option<WidgetUid>,
+     children: Vec<WidgetUid>,
++    /// Inserted via `insert_child`/`insert_child_deep` but not (yet) reported
++    /// by the parent's `children()`. A refresh keeps such a child linked
++    /// instead of unlinking and eventually removing its whole subtree, since
++    /// hosts like Dock-style containers own these children outside the
++    /// widget's child vec. Cleared the moment the parent reports it.
++    manual: bool,
+ }
+ 
+ #[derive(Clone)]
+@@ -325,6 +331,7 @@ pub fn observe_node(
+                         skip_search,
+                         parent,
+                         children: Vec::new(),
++                        manual: false,
+                     },
+                 );
+                 node_is_new = true;
+@@ -445,6 +452,7 @@ pub fn insert_child(&self, parent_uid: WidgetUid, name: LiveId, widget: WidgetRe
+                     skip_search: false,
+                     parent: None,
+                     children: Vec::new(),
++                        manual: false,
+                 },
+             );
+             if inner.root_uid == WidgetUid(0) {
+@@ -463,6 +471,7 @@ pub fn insert_child(&self, parent_uid: WidgetUid, name: LiveId, widget: WidgetRe
+         match inner.graph.get_mut(&child_uid) {
+             Some(node) => {
+                 old_parent = node.parent;
++                node.manual = true;
+                 if node.name != name {
+                     node.name = name;
+                     name_changed = true;
+@@ -491,6 +500,7 @@ pub fn insert_child(&self, parent_uid: WidgetUid, name: LiveId, widget: WidgetRe
+                         skip_search: child_skip_search,
+                         parent: Some(parent_uid),
+                         children: Vec::new(),
++                        manual: true,
+                     },
+                 );
+                 child_is_new = true;
+@@ -684,6 +694,7 @@ pub fn seed_from_widget(&self, widget: WidgetRef) {
+                 skip_search,
+                 parent: None,
+                 children: Vec::new(),
++                        manual: false,
+             },
+         );
+         if inner.root_uid == WidgetUid(0) {
+@@ -746,6 +757,7 @@ pub fn set_root_widget(&self, widget: WidgetRef) {
+                         skip_search,
+                         parent: None,
+                         children: Vec::new(),
++                        manual: false,
+                     },
+                 );
+                 node_is_new = true;
+@@ -829,6 +841,7 @@ pub fn refresh_from_borrowed<F>(&self, uid: WidgetUid, mut visit: F)
+                     skip_search: false,
+                     parent: None,
+                     children: Vec::new(),
++                        manual: false,
+                 },
+             );
+             if inner.root_uid == WidgetUid(0) {
+@@ -1396,6 +1409,9 @@ fn refresh_node_children_from_discovered(
+             match inner.graph.get_mut(&child_uid) {
+                 Some(child_node) => {
+                     old_parent = child_node.parent;
++                    // The parent reports this child now, so it no longer needs
++                    // manual-insert protection.
++                    child_node.manual = false;
+                     if child_node.name != child_name {
+                         child_node.name = child_name;
+                         child_name_changed = true;
+@@ -1433,6 +1449,7 @@ fn refresh_node_children_from_discovered(
+                             skip_search: child_skip_search,
+                             parent: Some(uid),
+                             children: Vec::new(),
++                        manual: false,
+                         },
+                     );
+                     child_is_new = true;
+@@ -1489,6 +1506,23 @@ fn refresh_node_children_from_discovered(
+             }
+         }
+ 
++        // A child inserted via insert_child_deep is owned outside the parent's
++        // child vec, so children() never reports it. Losing it here unlinked
++        // its whole subtree from every downward search (and the removal pass
++        // below then deleted it), which silently killed name lookups inside
++        // dynamically hosted subtrees. Keep the live ones linked.
++        for old_uid in old_children.iter().copied() {
++            if new_children.iter().any(|entry| *entry == old_uid) {
++                continue;
++            }
++            let keep = inner.graph.get(&old_uid).map_or(false, |node| {
++                node.manual && node.parent == Some(uid) && node.widget.upgrade().is_some()
++            });
++            if keep {
++                new_children.push(old_uid);
++            }
++        }
++
+         // Compare against old_children (the original list before std::mem::take),
+         // NOT node.children which is empty after the take.
+         let parent_children_changed = old_children != new_children;
