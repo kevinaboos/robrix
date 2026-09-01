@@ -166,6 +166,12 @@ pub struct BrokerCtx<'a> {
     /// The app whose host pane is currently shown, gating the UI services
     /// and the one-at-a-time modal guard.
     pub foreground_app: Option<&'a str>,
+    /// Whether an app has a live instance docked on a room screen; those are
+    /// on screen too, so UI-class services must not treat them as background.
+    pub is_docked: &'a dyn Fn(&str) -> bool,
+    /// While true, every write to Matrix is refused before any prompt or
+    /// use is recorded.
+    pub matrix_read_only: bool,
 }
 
 pub struct Broker {
@@ -278,8 +284,10 @@ impl Broker {
         if req.service == "permissions.request" {
             return respond(cx, Reply::of(req), Ok("{\"granted\": false}"));
         }
-        let msg = match service_permission(&req.service) {
-            Some(perm) => format!("permission denied: {}", perm.as_str()),
+        // Name the exact capability, so an author learns which single
+        // ability is blocked rather than just its group.
+        let msg = match crate::capabilities::for_service(&req.service) {
+            Some(cap) => format!("permission denied: {}", cap.id),
             None => "permission denied".to_string(),
         };
         respond(cx, Reply::of(req), Err(&msg));
@@ -335,8 +343,14 @@ impl Broker {
         // Abuse control comes BEFORE the permission check, because refusing a
         // request is itself work and an app in a tight loop must not be able
         // to make the host do it forever.
+        // Refuse switched-off writes up front: no prompt, no recorded use.
+        if ctx.matrix_read_only && req.service == "matrix.send_message" {
+            return respond(cx, reply, Err("Robrix mini-apps are read-only right now: sending to rooms is disabled"));
+        }
+        let on_screen = ctx.foreground_app == Some(manifest.id.as_str())
+            || (ctx.is_docked)(&manifest.id);
         if charge == Charge::Yes {
-            let foreground = ctx.foreground_app == Some(manifest.id.as_str());
+            let foreground = on_screen;
             let verdict = self.limits.check(&manifest.id, &req.service, foreground);
             if trace_on() {
                 if let limits::Verdict::Refuse(why) | limits::Verdict::Stop(why) = &verdict {
@@ -373,16 +387,21 @@ impl Broker {
             let to = args["to"].as_str().unwrap_or_default().to_string();
             if to.is_empty() || to == "self" { manifest.id.clone() } else { to }
         });
-        let needs = match req.service.as_str() {
-            "env" | "permissions.query" | "permissions.request" => None,
-            "ipc.send" if ipc_target.as_deref() == Some(manifest.id.as_str()) => None,
-            other => match service_permission(other) {
-                Some(perm) => Some(perm),
-                None => return respond(cx, reply, Err(&format!("unknown service '{other}'"))),
-            },
+        let Some(capability) = crate::capabilities::for_service(&req.service) else {
+            return respond(cx, reply, Err(&format!("unknown service '{}'", req.service)));
         };
+        if !capability.is_available() {
+            return respond(cx, reply, Err(&format!("'{}' is not available in this Robrix", req.service)));
+        }
+        // Same-app IPC is inside one sandbox: no permission involved.
+        let self_ipc = req.service == "ipc.send"
+            && ipc_target.as_deref() == Some(manifest.id.as_str());
+        let needs = if self_ipc { None } else { capability.group };
         if let Some(perm) = needs {
-            match ctx.permissions.effective(&manifest, perm) {
+            // The group answers the prompt; the user can still block this
+            // single capability underneath it.
+            let effective = ctx.permissions.effective_capability(&manifest, capability);
+            match effective {
                 // A capability actually being exercised — the only place a
                 // "used" record can honestly come from.
                 Effective::Granted => {
@@ -773,27 +792,6 @@ impl Broker {
     }
 }
 
-/// The permission each service needs. `None` for the free ones and for
-/// anything unknown; a same-app `ipc.send` skips the check in dispatch.
-fn service_permission(service: &str) -> Option<Permission> {
-    match service {
-        "location.get" => Some(Permission::Location),
-        "clipboard.read" => Some(Permission::ClipboardRead),
-        "clipboard.write" => Some(Permission::ClipboardWrite),
-        "url.open" => Some(Permission::OpenUrl),
-        "share" => Some(Permission::Share),
-        "notify.post" | "notify.clear" => Some(Permission::Notifications),
-        "files.pick" | "files.save" => Some(Permission::Files),
-        "auth.check" => Some(Permission::Auth),
-        "ipc.send" => Some(Permission::Ipc),
-        "matrix.room_info" => Some(Permission::MatrixRoomInfo),
-        "matrix.read_messages" | "matrix.room_members" | "matrix.pinned_events"
-        | "matrix.room_threads" => Some(Permission::MatrixRoomRead),
-        "matrix.send_message" => Some(Permission::MatrixRoomSend),
-        "matrix.profile" => Some(Permission::MatrixProfile),
-        _ => None,
-    }
-}
 
 struct LocationHandler {
     tx: Mutex<Sender<Completion>>,
