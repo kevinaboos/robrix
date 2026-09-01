@@ -33,6 +33,11 @@ pub struct MiniAppManifest {
     /// so a persuasive string can't pose as the system.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub permission_reasons: BTreeMap<String, String>,
+    /// Individual capability ids the app declares, narrowing a declared
+    /// permission group to just these. Empty means "everything in the
+    /// groups declared above".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
     /// Pre-installed apps cannot be uninstalled.
     pub builtin: bool,
     /// A widget-form Splash script some host_launcher bundles carry. Kept for
@@ -67,6 +72,22 @@ impl MiniAppManifest {
         self.permissions = seen;
         self.permission_reasons
             .retain(|id, _| self.permissions.iter().any(|p| p == id));
+        // A declared capability implies its group; unknown ids are dropped
+        // like unknown permissions.
+        let mut caps = Vec::new();
+        for id in std::mem::take(&mut self.capabilities) {
+            let Some(cap) = crate::capabilities::by_id(&id) else { continue };
+            if caps.contains(&id) {
+                continue;
+            }
+            if let Some(group) = cap.group
+                && !self.declares(group)
+            {
+                self.permissions.push(group.as_str().to_string());
+            }
+            caps.push(id);
+        }
+        self.capabilities = caps;
         self.allow_net = self.declares(crate::permissions::Permission::Network);
     }
 
@@ -74,6 +95,20 @@ impl MiniAppManifest {
     /// being granted).
     pub fn declares(&self, perm: crate::permissions::Permission) -> bool {
         self.permissions.iter().any(|p| p == perm.as_str())
+    }
+
+    /// Whether the app may ever use this capability: its group is declared,
+    /// and if the app narrowed that group to specific capabilities, this is
+    /// one of them. Ungated plumbing is always declared.
+    pub fn declares_capability(&self, cap: &crate::capabilities::Capability) -> bool {
+        let Some(group) = cap.group else { return true };
+        if !self.declares(group) {
+            return false;
+        }
+        let narrowed = self.capabilities.iter().any(|id| {
+            crate::capabilities::by_id(id).is_some_and(|c| c.group == Some(group))
+        });
+        !narrowed || self.capabilities.iter().any(|id| id == cap.id)
     }
 
     /// The app's own explanation for wanting a permission, if it gave one.

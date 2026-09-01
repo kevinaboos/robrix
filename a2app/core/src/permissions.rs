@@ -35,6 +35,50 @@ pub enum Permission {
     MatrixRoomInfo,
     /// Know the user's own Matrix display name and user id.
     MatrixProfile,
+    /// Low-sensitivity facts about this device and connection: platform, locale, time zone, onlin
+    DeviceInfo,
+    /// Take a photo through the system camera.
+    Camera,
+    /// Record an audio clip through the system recorder.
+    Microphone,
+    /// See this device's ID and verification state, your homeserver, and app-owned account settin
+    MatrixAccountRead,
+    /// Change your display name or avatar, block people, or store app settings on your account. A
+    MatrixAccountWrite,
+    /// Fetch other Matrix users' public profiles and find existing chats with them.
+    MatrixUsers,
+    /// Be told as messages, edits, reactions, typing, receipts, joins and mentions happen in this
+    MatrixRoomWatch,
+    /// React, show typing, and mark this room read as you. Off unless 'Apps may write to rooms' i
+    MatrixRoomInteract,
+    /// Store and read this app's own data as events in this room so everyone using it sees the sa
+    MatrixRoomAppData,
+    /// Pin messages, favorite this room, flag it unread, or change its settings. Writes are off u
+    MatrixRoomManage,
+    /// Invite people to this room as you. Asks every time and is off unless 'Apps may change room
+    MatrixRoomInvite,
+    /// Fetch images and files from this room, get link previews, and upload files to your homeser
+    MatrixMedia,
+    /// See which rooms, DMs and invites you have with unread counts, and be told when that change
+    MatrixRoomsList,
+    /// Read rooms you pick beyond the one this app is attached to.
+    MatrixRoomsRead,
+    /// Post to rooms you pick, as you. Asks every time and is off unless 'Apps may write to rooms
+    MatrixRoomsSend,
+    /// Join rooms, answer invites, open direct messages, or leave this room as you. Asks every ti
+    MatrixMembership,
+    /// See your spaces and the rooms inside them.
+    MatrixSpaces,
+    /// Take you to a room, message, thread, person, space, screen or another mini-app.
+    RobrixNavigation,
+    /// Put a draft in this room's message box for you to review and send. Nothing is sent by the 
+    RobrixComposer,
+    /// Resize, move, minimize or break out its pane, badge its tab, and ask for keyboard focus.
+    RobrixUi,
+    /// Know display settings like view mode, zoom and theme so the app can match Robrix.
+    RobrixPreferences,
+    /// Be told which room or screen you switch to.
+    RobrixObserve,
 }
 
 /// Runtime permissions prompt the user on first use; normal ones auto-grant
@@ -46,7 +90,7 @@ pub enum Tier {
 }
 
 impl Permission {
-    pub const ALL: [Permission; 14] = [
+    pub const ALL: [Permission; 36] = [
         Permission::Network,
         Permission::Location,
         Permission::Notifications,
@@ -61,6 +105,28 @@ impl Permission {
         Permission::Auth,
         Permission::MatrixRoomInfo,
         Permission::MatrixProfile,
+        Permission::DeviceInfo,
+        Permission::Camera,
+        Permission::Microphone,
+        Permission::MatrixAccountRead,
+        Permission::MatrixAccountWrite,
+        Permission::MatrixUsers,
+        Permission::MatrixRoomWatch,
+        Permission::MatrixRoomInteract,
+        Permission::MatrixRoomAppData,
+        Permission::MatrixRoomManage,
+        Permission::MatrixRoomInvite,
+        Permission::MatrixMedia,
+        Permission::MatrixRoomsList,
+        Permission::MatrixRoomsRead,
+        Permission::MatrixRoomsSend,
+        Permission::MatrixMembership,
+        Permission::MatrixSpaces,
+        Permission::RobrixNavigation,
+        Permission::RobrixComposer,
+        Permission::RobrixUi,
+        Permission::RobrixPreferences,
+        Permission::RobrixObserve,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -79,6 +145,28 @@ impl Permission {
             Permission::Auth => "auth",
             Permission::MatrixRoomInfo => "matrix-room-info",
             Permission::MatrixProfile => "matrix-profile",
+            Permission::DeviceInfo => "device-info",
+            Permission::Camera => "camera",
+            Permission::Microphone => "microphone",
+            Permission::MatrixAccountRead => "matrix-account-read",
+            Permission::MatrixAccountWrite => "matrix-account-write",
+            Permission::MatrixUsers => "matrix-users",
+            Permission::MatrixRoomWatch => "matrix-room-watch",
+            Permission::MatrixRoomInteract => "matrix-room-interact",
+            Permission::MatrixRoomAppData => "matrix-room-app-data",
+            Permission::MatrixRoomManage => "matrix-room-manage",
+            Permission::MatrixRoomInvite => "matrix-room-invite",
+            Permission::MatrixMedia => "matrix-media",
+            Permission::MatrixRoomsList => "matrix-rooms-list",
+            Permission::MatrixRoomsRead => "matrix-rooms-read",
+            Permission::MatrixRoomsSend => "matrix-rooms-send",
+            Permission::MatrixMembership => "matrix-membership",
+            Permission::MatrixSpaces => "matrix-spaces",
+            Permission::RobrixNavigation => "robrix-navigation",
+            Permission::RobrixComposer => "robrix-composer",
+            Permission::RobrixUi => "robrix-ui",
+            Permission::RobrixPreferences => "robrix-preferences",
+            Permission::RobrixObserve => "robrix-observe",
         }
     }
 
@@ -98,14 +186,36 @@ impl Permission {
             // Reading and speaking in a room are serious enough to always
             // ask, even though the app was opened from that very room.
             | Permission::MatrixRoomRead
-            | Permission::MatrixRoomSend => Tier::Runtime,
+            | Permission::MatrixRoomSend
+            | Permission::Camera
+            | Permission::Microphone
+            | Permission::MatrixAccountRead
+            | Permission::MatrixAccountWrite
+            | Permission::MatrixUsers
+            | Permission::MatrixRoomWatch
+            | Permission::MatrixRoomInteract
+            | Permission::MatrixRoomAppData
+            | Permission::MatrixRoomManage
+            | Permission::MatrixRoomInvite
+            | Permission::MatrixMedia
+            | Permission::MatrixRoomsList
+            | Permission::MatrixRoomsRead
+            | Permission::MatrixRoomsSend
+            | Permission::MatrixMembership
+            | Permission::MatrixSpaces
+            | Permission::RobrixNavigation
+            | Permission::RobrixComposer
+            | Permission::RobrixUi
+            | Permission::RobrixObserve => Tier::Runtime,
             Permission::ClipboardWrite
             | Permission::OpenUrl
             | Permission::Files
             | Permission::Share
             | Permission::Auth
             | Permission::MatrixRoomInfo
-            | Permission::MatrixProfile => Tier::Normal,
+            | Permission::MatrixProfile
+            | Permission::DeviceInfo
+            | Permission::RobrixPreferences => Tier::Normal,
         }
     }
 
@@ -117,7 +227,7 @@ impl Permission {
             Permission::Notifications => "Notifications",
             Permission::ClipboardRead => "Read Clipboard",
             Permission::Ipc => "App Messaging",
-            Permission::MatrixRoomRead => "Read room messages",
+            Permission::MatrixRoomRead => "Read room content",
             Permission::MatrixRoomSend => "Send room messages",
             Permission::ClipboardWrite => "Write Clipboard",
             Permission::OpenUrl => "Open Links",
@@ -126,6 +236,28 @@ impl Permission {
             Permission::Auth => "Authentication",
             Permission::MatrixRoomInfo => "Room details",
             Permission::MatrixProfile => "Your identity",
+            Permission::DeviceInfo => "Device details",
+            Permission::Camera => "Camera",
+            Permission::Microphone => "Microphone",
+            Permission::MatrixAccountRead => "Your account details",
+            Permission::MatrixAccountWrite => "Change your account",
+            Permission::MatrixUsers => "Look up people",
+            Permission::MatrixRoomWatch => "Watch this room live",
+            Permission::MatrixRoomInteract => "React in this room",
+            Permission::MatrixRoomAppData => "Sync app data in this room",
+            Permission::MatrixRoomManage => "Manage this room",
+            Permission::MatrixRoomInvite => "Invite to this room",
+            Permission::MatrixMedia => "Media",
+            Permission::MatrixRoomsList => "Your room list",
+            Permission::MatrixRoomsRead => "Read other rooms",
+            Permission::MatrixRoomsSend => "Send to other rooms",
+            Permission::MatrixMembership => "Join, leave and start chats",
+            Permission::MatrixSpaces => "Spaces",
+            Permission::RobrixNavigation => "Navigate Robrix",
+            Permission::RobrixComposer => "Prepare messages",
+            Permission::RobrixUi => "Its own pane",
+            Permission::RobrixPreferences => "Robrix settings",
+            Permission::RobrixObserve => "Watch what you're doing",
         }
     }
 
@@ -145,6 +277,28 @@ impl Permission {
             Permission::Auth => "🔒",
             Permission::MatrixRoomInfo => "🏷",
             Permission::MatrixProfile => "👤",
+            Permission::DeviceInfo => "📱",
+            Permission::Camera => "📷",
+            Permission::Microphone => "🎙",
+            Permission::MatrixAccountRead => "🪪",
+            Permission::MatrixAccountWrite => "✏️",
+            Permission::MatrixUsers => "🧑‍🤝‍🧑",
+            Permission::MatrixRoomWatch => "👁",
+            Permission::MatrixRoomInteract => "👍",
+            Permission::MatrixRoomAppData => "🧩",
+            Permission::MatrixRoomManage => "🛠",
+            Permission::MatrixRoomInvite => "➕",
+            Permission::MatrixMedia => "🖼",
+            Permission::MatrixRoomsList => "🗂",
+            Permission::MatrixRoomsRead => "📚",
+            Permission::MatrixRoomsSend => "📣",
+            Permission::MatrixMembership => "🚪",
+            Permission::MatrixSpaces => "🌌",
+            Permission::RobrixNavigation => "🧭",
+            Permission::RobrixComposer => "⌨️",
+            Permission::RobrixUi => "🪟",
+            Permission::RobrixPreferences => "⚙️",
+            Permission::RobrixObserve => "📡",
         }
     }
 
@@ -157,7 +311,7 @@ impl Permission {
             Permission::Notifications => "Show popup notifications from this app.",
             Permission::ClipboardRead => "Read whatever is on your clipboard.",
             Permission::Ipc => "Send messages to your other mini-apps.",
-            Permission::MatrixRoomRead => "Read the latest messages in this room.",
+            Permission::MatrixRoomRead => "Read this room's messages, members, pins, and threads.",
             Permission::MatrixRoomSend => "Send messages to this room as you.",
             Permission::ClipboardWrite => "Put text on your clipboard.",
             Permission::OpenUrl => "Open web links in your browser.",
@@ -166,6 +320,28 @@ impl Permission {
             Permission::Auth => "Ask you to authenticate (Touch ID / password).",
             Permission::MatrixRoomInfo => "See this room's name, topic, and member count.",
             Permission::MatrixProfile => "Know your Matrix display name and user ID.",
+            Permission::DeviceInfo => "Low-sensitivity facts about this device and connection: platform, locale, time zone, online/offline, sync state.",
+            Permission::Camera => "Take a photo through the system camera.",
+            Permission::Microphone => "Record an audio clip through the system recorder.",
+            Permission::MatrixAccountRead => "See this device's ID and verification state, your homeserver, and app-owned account settings.",
+            Permission::MatrixAccountWrite => "Change your display name or avatar, block people, or store app settings on your account. Asks every time and is off unless 'Apps may change your account' is on.",
+            Permission::MatrixUsers => "Fetch other Matrix users' public profiles and find existing chats with them.",
+            Permission::MatrixRoomWatch => "Be told as messages, edits, reactions, typing, receipts, joins and mentions happen in this room.",
+            Permission::MatrixRoomInteract => "React, show typing, and mark this room read as you. Off unless 'Apps may write to rooms' is on.",
+            Permission::MatrixRoomAppData => "Store and read this app's own data as events in this room so everyone using it sees the same state. Saving is off unless 'Apps may write to rooms' is on.",
+            Permission::MatrixRoomManage => "Pin messages, favorite this room, flag it unread, or change its settings. Writes are off unless 'Apps may write to rooms' is on.",
+            Permission::MatrixRoomInvite => "Invite people to this room as you. Asks every time and is off unless 'Apps may change room membership' is on.",
+            Permission::MatrixMedia => "Fetch images and files from this room, get link previews, and upload files to your homeserver.",
+            Permission::MatrixRoomsList => "See which rooms, DMs and invites you have with unread counts, and be told when that changes.",
+            Permission::MatrixRoomsRead => "Read rooms you pick beyond the one this app is attached to.",
+            Permission::MatrixRoomsSend => "Post to rooms you pick, as you. Asks every time and is off unless 'Apps may write to rooms' is on.",
+            Permission::MatrixMembership => "Join rooms, answer invites, open direct messages, or leave this room as you. Asks every time and is off unless 'Apps may change room membership' is on.",
+            Permission::MatrixSpaces => "See your spaces and the rooms inside them.",
+            Permission::RobrixNavigation => "Take you to a room, message, thread, person, space, screen or another mini-app.",
+            Permission::RobrixComposer => "Put a draft in this room's message box for you to review and send. Nothing is sent by the app.",
+            Permission::RobrixUi => "Resize, move, minimize or break out its pane, badge its tab, and ask for keyboard focus.",
+            Permission::RobrixPreferences => "Know display settings like view mode, zoom and theme so the app can match Robrix.",
+            Permission::RobrixObserve => "Be told which room or screen you switch to.",
         }
     }
 }
@@ -212,6 +388,11 @@ pub const MAX_ACCESS_RECORDS: usize = 240;
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct PermissionStore {
     grants: BTreeMap<MiniAppId, BTreeMap<String, GrantState>>,
+    /// Per-capability answers layered under the group grants: `Ask` follows
+    /// the group, `Granted`/`Denied` override it (a group `Denied` still
+    /// wins, so blocking a group is a true kill switch).
+    #[serde(default)]
+    cap_overrides: BTreeMap<MiniAppId, BTreeMap<String, GrantState>>,
     /// Newest-last ring of capability uses (see [`AccessRecord`]).
     #[serde(default)]
     access: Vec<AccessRecord>,
@@ -339,6 +520,7 @@ impl PermissionStore {
     /// again is its own deliberate choice.
     pub fn reset_all(&mut self) {
         self.grants.clear();
+        self.cap_overrides.clear();
         self.until.clear();
         self.once.clear();
     }
@@ -403,6 +585,7 @@ impl PermissionStore {
     /// Forget an app entirely (uninstall). A reinstall starts from Ask.
     pub fn remove_app(&mut self, app_id: &str) {
         self.grants.remove(app_id);
+        self.cap_overrides.remove(app_id);
         self.until.remove(app_id);
         self.uses.remove(app_id);
         self.clear_once_for(app_id);
@@ -492,14 +675,71 @@ impl PermissionStore {
         self.effective(manifest, perm) == Effective::Granted
     }
 
-    /// The capability names currently usable, in `Permission::ALL` order —
-    /// what `host.capabilities()` reports inside the app's isolate.
+    /// The user's stored answer for one (app, capability); `Ask` = follows
+    /// the group.
+    pub fn capability_state(&self, app_id: &str, cap_id: &str) -> GrantState {
+        self.cap_overrides
+            .get(app_id)
+            .and_then(|m| m.get(cap_id))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_capability(&mut self, app_id: &str, cap_id: &str, state: GrantState) {
+        let per_app = self.cap_overrides.entry(app_id.to_string()).or_default();
+        if state == GrantState::Ask {
+            per_app.remove(cap_id);
+        } else {
+            per_app.insert(cap_id.to_string(), state);
+        }
+    }
+
+    /// What one capability nets out to: its own override first, then its
+    /// group's answer; a group `Denied` (or a restriction) beats everything.
+    pub fn effective_capability(
+        &self,
+        manifest: &MiniAppManifest,
+        cap: &crate::capabilities::Capability,
+    ) -> Effective {
+        if !cap.is_available() {
+            return Effective::Undeclared;
+        }
+        if !manifest.declares_capability(cap) {
+            return Effective::Undeclared;
+        }
+        if self.is_restricted(&manifest.id) {
+            return Effective::Denied;
+        }
+        let Some(group) = cap.group else { return Effective::Granted };
+        let group_effective = self.effective(manifest, group);
+        match self.capability_state(&manifest.id, cap.id) {
+            GrantState::Denied => Effective::Denied,
+            GrantState::Granted => match group_effective {
+                Effective::Denied | Effective::Undeclared => group_effective,
+                _ => Effective::Granted,
+            },
+            GrantState::Ask => group_effective,
+        }
+    }
+
+    /// The names currently usable — every granted permission group id plus
+    /// every granted capability id — what `host.capabilities()` reports
+    /// inside the app's isolate, so `host.has("network")` and
+    /// `host.has("matrix.room.members.read")` both work.
     pub fn granted_caps(&self, manifest: &MiniAppManifest) -> Vec<String> {
-        Permission::ALL
+        let mut out: Vec<String> = Permission::ALL
             .into_iter()
             .filter(|p| self.is_granted(manifest, *p))
             .map(|p| p.as_str().to_string())
-            .collect()
+            .collect();
+        out.extend(
+            crate::capabilities::CATALOG
+                .iter()
+                .filter(|c| c.group.is_some())
+                .filter(|c| self.effective_capability(manifest, c) == Effective::Granted)
+                .map(|c| c.id.to_string()),
+        );
+        out
     }
 
     /// Declared permissions with their stored states, in declaration order,
@@ -604,6 +844,7 @@ mod tests {
             allow_net: false,
             permissions: perms.iter().map(|s| s.to_string()).collect(),
             permission_reasons: Default::default(),
+            capabilities: Vec::new(),
             builtin: false,
             widget: None,
             shortcuts: vec![],
@@ -631,11 +872,16 @@ mod tests {
         assert_eq!(store.effective(&m, Permission::OpenUrl), Effective::Granted);
         store.set("t", Permission::Network, GrantState::Granted);
         assert_eq!(store.effective(&m, Permission::Network), Effective::Granted);
-        assert_eq!(store.granted_caps(&m), vec!["network", "open-url"]);
+        // Group ids first, then the capability ids they unlock.
+        let caps = store.granted_caps(&m);
+        assert!(caps.iter().any(|c| c == "network") && caps.iter().any(|c| c == "open-url"));
+        assert!(caps.iter().any(|c| c == "network.http") && caps.iter().any(|c| c == "device.url.open"));
         // The user can shut off a normal-tier permission too.
         store.set("t", Permission::OpenUrl, GrantState::Denied);
         assert_eq!(store.effective(&m, Permission::OpenUrl), Effective::Denied);
-        assert_eq!(store.granted_caps(&m), vec!["network"]);
+        let caps = store.granted_caps(&m);
+        assert!(caps.iter().any(|c| c == "network"));
+        assert!(!caps.iter().any(|c| c == "open-url" || c == "device.url.open"));
     }
 
     #[test]
@@ -747,7 +993,7 @@ mod tests {
         let mut store = PermissionStore::default();
         store.set("t", Permission::Location, GrantState::Granted);
         assert_eq!(store.effective(&m, Permission::Location), Effective::Granted);
-        assert_eq!(store.granted_caps(&m).len(), 2);
+        assert!(store.granted_caps(&m).iter().any(|c| c == "location"));
 
         store.restrict("t", "made far too many requests", 1000, 42);
         assert_eq!(store.effective(&m, Permission::Location), Effective::Denied);
@@ -761,7 +1007,7 @@ mod tests {
         // Lifting it restores exactly what was there before, nothing more.
         store.unrestrict("t");
         assert_eq!(store.effective(&m, Permission::Location), Effective::Granted);
-        assert_eq!(store.granted_caps(&m).len(), 2);
+        assert!(store.granted_caps(&m).iter().any(|c| c == "location"));
     }
 
     /// The record survives a restart (that is the whole point) and carries
@@ -788,5 +1034,46 @@ mod tests {
         store.reset_all();
         assert!(store.is_restricted("t"), "a stop is not a grant");
         assert_eq!(store.state("t", Permission::Location), GrantState::Ask);
+    }
+
+    /// A capability answer sits under its group: Ask follows the group,
+    /// an explicit answer overrides it, and a blocked group wins regardless.
+    #[test]
+    fn capability_overrides_layer_under_groups() {
+        use crate::capabilities::by_id;
+        let mut store = PermissionStore::default();
+        let m = manifest(&["matrix-room-read"]);
+        let members = by_id("matrix.room.members.read").unwrap();
+        let pins = by_id("matrix.room.pins.read").unwrap();
+        assert_eq!(store.effective_capability(&m, members), Effective::NeedsPrompt);
+        store.set("t", Permission::MatrixRoomRead, GrantState::Granted);
+        assert_eq!(store.effective_capability(&m, members), Effective::Granted);
+        store.set_capability("t", members.id, GrantState::Denied);
+        assert_eq!(store.effective_capability(&m, members), Effective::Denied);
+        assert_eq!(store.effective_capability(&m, pins), Effective::Granted);
+        store.set_capability("t", pins.id, GrantState::Granted);
+        store.set("t", Permission::MatrixRoomRead, GrantState::Denied);
+        assert_eq!(store.effective_capability(&m, pins), Effective::Denied);
+        let other = by_id("device.clipboard.read").unwrap();
+        assert_eq!(store.effective_capability(&m, other), Effective::Undeclared);
+        // Back to Ask clears the override entirely.
+        store.set_capability("t", members.id, GrantState::Ask);
+        assert_eq!(store.capability_state("t", members.id), GrantState::Ask);
+    }
+
+    #[test]
+    fn a_narrowed_manifest_declares_only_the_listed_capabilities() {
+        use crate::capabilities::by_id;
+        let mut m = manifest(&["matrix-room-read"]);
+        m.capabilities = vec!["matrix.room.members.read".to_string()];
+        m.normalize_permissions();
+        assert!(m.declares_capability(by_id("matrix.room.members.read").unwrap()));
+        assert!(!m.declares_capability(by_id("matrix.room.pins.read").unwrap()));
+        assert!(m.declares_capability(by_id("host.env.read").unwrap()));
+        // Listing a capability alone pulls its group in.
+        let mut n = manifest(&[]);
+        n.capabilities = vec!["device.clipboard.write".to_string()];
+        n.normalize_permissions();
+        assert!(n.declares(Permission::ClipboardWrite));
     }
 }

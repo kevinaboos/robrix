@@ -51,6 +51,9 @@ struct BundleFile {
     /// The app's stated reason per permission, shown at install time.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     permission_reasons: std::collections::BTreeMap<String, String>,
+    /// Capability ids narrowing the declared groups (see `capabilities`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    capabilities: Vec<String>,
     #[serde(default)]
     shortcuts: Vec<String>,
     source: String,
@@ -77,6 +80,7 @@ pub fn to_text(manifest: &MiniAppManifest) -> String {
         allow_net: manifest.allow_net,
         permissions: manifest.permissions.clone(),
         permission_reasons: manifest.permission_reasons.clone(),
+        capabilities: manifest.capabilities.clone(),
         shortcuts: manifest.shortcuts.clone(),
         source: manifest.source.clone(),
         widget: manifest.widget.as_ref().map(|w| BundleWidget {
@@ -133,6 +137,7 @@ fn parse_bundle(text: &str) -> Result<MiniAppManifest, String> {
             .into_iter()
             .map(|(k, v)| (k, clamp_reason(&v)))
             .collect(),
+        capabilities: file.capabilities,
         builtin: false,
         widget: file.widget.map(|w| WidgetManifest {
             source: w.source,
@@ -174,6 +179,7 @@ fn parse_bare_source(source: &str) -> Result<MiniAppManifest, String> {
         // generated one; dropping that here would install an app whose own
         // code can never work.
         permissions: sanitize_permissions(&header.permissions),
+        capabilities: header.capabilities,
         permission_reasons: header
             .permission_reasons
             .into_iter()
@@ -329,6 +335,7 @@ mod tests {
             allow_net: false,
             permissions: vec!["network".to_string(), "open-url".to_string()],
             permission_reasons: Default::default(),
+            capabilities: Vec::new(),
             builtin: true,
             widget: None,
             shortcuts: vec!["Start".to_string()],

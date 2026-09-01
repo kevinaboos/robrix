@@ -29,6 +29,7 @@ fn app(id: &str, name: &str, icon: &str, tint: u32, source: String) -> MiniAppMa
         allow_net: false,
         permissions: permissions_for(id),
         permission_reasons: reasons_for(id),
+        capabilities: Vec::new(),
         builtin: true,
         widget: None,
         shortcuts: Vec::new(),

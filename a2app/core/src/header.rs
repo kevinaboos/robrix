@@ -18,6 +18,9 @@ pub struct Header {
     /// Per-capability reasons (`// why-location: shows local forecasts`),
     /// shown on the prompt in the app's own voice.
     pub permission_reasons: BTreeMap<String, String>,
+    /// Individual capability ids listed on the same line, which narrow
+    /// their group to just those (`// permissions: matrix.room.members.read`).
+    pub capabilities: Vec<String>,
 }
 
 /// Parses the header comments off the top of the script. They are left in the
@@ -51,10 +54,20 @@ pub fn parse_app_header(source: &str) -> Header {
             // can't grant would sit in the app's info promising something fake.
             for id in v.split(',') {
                 let id = id.trim();
-                if crate::permissions::Permission::from_str(id).is_some()
-                    && !header.permissions.iter().any(|p| p == id)
-                {
-                    header.permissions.push(id.to_string());
+                if crate::permissions::Permission::from_str(id).is_some() {
+                    if !header.permissions.iter().any(|p| p == id) {
+                        header.permissions.push(id.to_string());
+                    }
+                } else if let Some(cap) = crate::capabilities::by_id(id) {
+                    // A capability declares its group too, narrowed to it.
+                    if let Some(group) = cap.group
+                        && !header.permissions.iter().any(|p| p == group.as_str())
+                    {
+                        header.permissions.push(group.as_str().to_string());
+                    }
+                    if !header.capabilities.iter().any(|c| c == id) {
+                        header.capabilities.push(id.to_string());
+                    }
                 }
             }
         } else if let Some(v) = rest.strip_prefix("why-") {

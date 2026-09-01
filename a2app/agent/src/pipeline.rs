@@ -496,6 +496,7 @@ impl Generation {
                     // lists every one of them.
                     permissions: header.permissions.clone(),
                     permission_reasons: header.permission_reasons.clone(),
+                    capabilities: Vec::new(),
                     builtin: false,
                     widget: None,
                     shortcuts: Vec::new(),
@@ -522,6 +523,7 @@ impl Generation {
                     r.extend(header.permission_reasons.clone());
                     r
                 },
+                capabilities: Vec::new(),
                 // Keep the flag: a modified BUILT-IN stays built-in (its
                 // override just shadows the stock app). Dropping it here would
                 // make it uninstallable-then-resurrectable — and would strip
