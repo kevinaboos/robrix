@@ -74,6 +74,9 @@ pub struct PromptInfo {
     pub perm: Permission,
     /// The app author's own `why-<perm>` reason, if declared.
     pub reason: Option<String>,
+    /// The specific ability that triggered the ask (its catalog title), when
+    /// a parked request identifies one.
+    pub capability: Option<String>,
 }
 
 /// The user's answer, emitted as a global action for the runtime to apply.
@@ -124,11 +127,20 @@ impl MiniAppPermissionPromptRef {
         let Some(mut inner) = self.borrow_mut() else { return };
         inner.show_once = info.perm.tier() == a2app_core::permissions::Tier::Runtime;
         inner.view.label(cx, ids!(prompt_glyph)).set_text(cx, info.perm.glyph());
+        let asked = info.capability.as_deref().unwrap_or(info.perm.title());
         inner.view.label(cx, ids!(prompt_title)).set_text(cx, &format!(
-            "{} \"{}\" wants to use: {}",
-            info.app_icon, info.app_name, info.perm.title(),
+            "{} \"{}\" wants to: {}",
+            info.app_icon, info.app_name, asked,
         ));
-        inner.view.label(cx, ids!(prompt_blurb)).set_text(cx, info.perm.blurb());
+        // Allowing answers for the whole group; App Info can narrow it.
+        let blurb = match info.capability {
+            Some(_) => format!(
+                "{} Allowing covers the \"{}\" group; single abilities can be blocked in App Info.",
+                info.perm.blurb(), info.perm.title(),
+            ),
+            None => info.perm.blurb().to_string(),
+        };
+        inner.view.label(cx, ids!(prompt_blurb)).set_text(cx, &blurb);
         let reason_text = match info.reason.as_deref() {
             Some(reason) => format!("The app's stated reason: \"{reason}\""),
             None => String::from("The app gave no reason for needing this."),

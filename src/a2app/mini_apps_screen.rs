@@ -133,6 +133,54 @@ script_mod! {
         }
     }
 
+    // One capability under a permission group in the app info pane: the
+    // single ability, its tags, and its own allow/block override.
+    mod.widgets.MiniAppCapabilityRow = set_type_default() do #(MiniAppCapabilityRow::register_widget(vm)) {
+        ..mod.widgets.RoundedView
+
+        width: Fill, height: Fit
+        flow: Right
+        spacing: 8
+        align: Align{y: 0.5}
+        padding: Inset{top: 3, bottom: 3, left: 44, right: 10}
+
+        View {
+            width: Fill, height: Fit
+            flow: Down
+            spacing: 1
+            cap_title := Label {
+                width: Fill, height: Fit
+                padding: 0, margin: 0
+                draw_text +: {
+                    text_style: REGULAR_TEXT {font_size: 10.5},
+                    color: (COLOR_TEXT)
+                }
+            }
+            cap_tags := Label {
+                width: Fill, height: Fit
+                padding: 0, margin: 0
+                draw_text +: {
+                    text_style: REGULAR_TEXT {font_size: 8.5},
+                    color: (MESSAGE_TEXT_COLOR)
+                }
+            }
+        }
+        cap_state := Label {
+            width: 110, height: Fit
+            padding: 0, margin: 0
+            align: Align{x: 1.0}
+            draw_text +: {
+                text_style: REGULAR_TEXT {font_size: 9.5},
+                color: (MESSAGE_TEXT_COLOR)
+            }
+        }
+        cap_change_button := RobrixNeutralIconButton {
+            padding: Inset{top: 4, bottom: 4, left: 8, right: 8},
+            icon_walk: Walk{width: 0, height: 0, margin: 0}
+            text: "Change"
+        }
+    }
+
     // One archived version in the app info pane.
     mod.widgets.MiniAppVersionRow = set_type_default() do #(MiniAppVersionRow::register_widget(vm)) {
         ..mod.widgets.RoundedView
@@ -527,6 +575,7 @@ script_mod! {
                 flow: Down
 
                 permission_row := mod.widgets.MiniAppPermissionRow { }
+                capability_row := mod.widgets.MiniAppCapabilityRow { }
             }
 
             SubsectionLabel { text: "Version history" }
@@ -669,6 +718,7 @@ pub enum MiniAppsScreenAction {
     OpenApp(MiniAppId),
     ShowInfo(MiniAppId),
     CyclePermission { app_id: MiniAppId, perm: Permission },
+    CycleCapability { app_id: MiniAppId, cap_id: String },
     RestoreVersion { app_id: MiniAppId, stamp: String },
     ProviderAction(String),
     ProviderForget(String),
@@ -750,6 +800,59 @@ impl MiniAppPermissionRow {
             Effective::Undeclared => ("Undeclared", crate::shared::styles::COLOR_FG_DISABLED),
         };
         let mut state_label = self.view.label(cx, ids!(perm_state));
+        script_apply_eval!(cx, state_label, {
+            text: #(state_text),
+            draw_text +: { color: #(color) },
+        });
+    }
+}
+
+#[derive(Script, ScriptHook, Widget)]
+pub struct MiniAppCapabilityRow {
+    #[deref] view: View,
+    #[rust] app_id: MiniAppId,
+    #[rust] cap_id: String,
+}
+
+impl Widget for MiniAppCapabilityRow {
+    fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        self.view.handle_event(cx, event, scope);
+        if let Event::Actions(actions) = event
+            && self.view.button(cx, ids!(cap_change_button)).clicked(actions)
+        {
+            cx.action(MiniAppsScreenAction::CycleCapability {
+                app_id: self.app_id.clone(),
+                cap_id: self.cap_id.clone(),
+            });
+        }
+    }
+    fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        self.view.draw_walk(cx, scope, walk)
+    }
+}
+
+impl MiniAppCapabilityRow {
+    fn populate(
+        &mut self,
+        cx: &mut Cx,
+        app_id: &str,
+        cap: &a2app_core::capabilities::Capability,
+        own: GrantState,
+        effective: Effective,
+    ) {
+        self.app_id = app_id.to_string();
+        self.cap_id = cap.id.to_string();
+        self.view.label(cx, ids!(cap_title)).set_text(cx, cap.title);
+        self.view.label(cx, ids!(cap_tags)).set_text(cx, &cap.tags());
+        // An explicit answer reads as such; otherwise it follows the group.
+        let (state_text, color) = match (own, effective) {
+            (GrantState::Granted, _) => (String::from("Allowed"), crate::shared::styles::COLOR_FG_ACCEPT_GREEN),
+            (GrantState::Denied, _) => (String::from("Blocked"), crate::shared::styles::COLOR_FG_DANGER_RED),
+            (GrantState::Ask, Effective::Granted) => (String::from("Allowed · group"), crate::shared::styles::COLOR_FG_DISABLED),
+            (GrantState::Ask, Effective::NeedsPrompt) => (String::from("Asks · group"), crate::shared::styles::COLOR_FG_DISABLED),
+            (GrantState::Ask, _) => (String::from("Blocked · group"), crate::shared::styles::COLOR_FG_DISABLED),
+        };
+        let mut state_label = self.view.label(cx, ids!(cap_state));
         script_apply_eval!(cx, state_label, {
             text: #(state_text),
             draw_text +: { color: #(color) },
@@ -888,6 +991,22 @@ impl Widget for MiniAppsScreen {
                 }
                 Some(MiniAppsScreenAction::CyclePermission { app_id, perm }) => {
                     self.cycle_permission(cx, app_id, *perm);
+                    continue;
+                }
+                Some(MiniAppsScreenAction::CycleCapability { app_id, cap_id }) => {
+                    // Follows group -> Blocked -> Allowed -> follows group.
+                    let current = with_a2app(|state| state.permissions.capability_state(app_id, cap_id))
+                        .unwrap_or_default();
+                    let next = match current {
+                        GrantState::Ask => GrantState::Denied,
+                        GrantState::Denied => GrantState::Granted,
+                        GrantState::Granted => GrantState::Ask,
+                    };
+                    cx.action(A2AppOp::SetCapability {
+                        app_id: app_id.clone(),
+                        cap_id: cap_id.clone(),
+                        state: next,
+                    });
                     continue;
                 }
                 Some(MiniAppsScreenAction::RestoreVersion { app_id, stamp }) => {
@@ -1245,6 +1364,30 @@ impl MiniAppsScreen {
                             row.populate(cx, &app_id, perm, effective);
                         }
                         item.draw_all(cx, &mut Scope::empty());
+
+                        // The single abilities this group unlocks, each with
+                        // its own override.
+                        let caps: Vec<(&'static a2app_core::capabilities::Capability, GrantState, Effective)> =
+                            with_a2app(|state| {
+                                state.registry.get(&app_id).map(|m| {
+                                    a2app_core::capabilities::in_group(perm)
+                                        .filter(|c| c.is_available() && m.declares_capability(c))
+                                        .map(|c| (
+                                            c,
+                                            state.permissions.capability_state(&app_id, c.id),
+                                            state.permissions.effective_capability(m, c),
+                                        ))
+                                        .collect()
+                                }).unwrap_or_default()
+                            }).unwrap_or_default();
+                        for (cap, own, cap_effective) in caps {
+                            let cap_item_id = LiveId::from_str(cap.id);
+                            let Some(item) = list.item(cx, cap_item_id, id!(capability_row)) else { continue };
+                            if let Some(mut row) = item.borrow_mut::<MiniAppCapabilityRow>() {
+                                row.populate(cx, &app_id, cap, own, cap_effective);
+                            }
+                            item.draw_all(cx, &mut Scope::empty());
+                        }
                     }
                 } else {
                     for version in self.versions.clone() {
