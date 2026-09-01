@@ -269,6 +269,43 @@ undeclared capability is refused without even asking the user:
 permission prompt, attributed to your app. Ask for the least you need — every
 declaration is listed in App Info, where the user can block any of it.
 
+**Permissions are groups of CAPABILITIES**, and the user can block any single
+capability under a group. You may declare capability ids instead of a whole
+group to ask for less (`// permissions: matrix.room.members.read` declares
+only that ability; its group `matrix-room-read` is implied). Every capability
+is tagged read/write, direction (app → Robrix request, or Robrix → app hook),
+and scope (this room, account, device, app-local). Available today:
+
+| group | capability id | tags |
+|---|---|---|
+| network | `network.http` | write · app→Robrix · device |
+| location | `device.location.read` | read · app→Robrix · device |
+| notifications | `notifications.post`, `notifications.clear` | write · device |
+| clipboard-read | `device.clipboard.read` | read · device |
+| clipboard-write | `device.clipboard.write` | write · device |
+| ipc | `ipc.send` (write), `on_ipc_message` (Robrix→app hook) | app-local |
+| open-url | `device.url.open` | write · device |
+| share | `device.share` | write · device |
+| files | `device.files.pick` (read), `device.files.save` (write) | device |
+| auth | `device.auth.check` | read · device |
+| matrix-room-info | `matrix.room.info.read` | read · this room |
+| matrix-room-read | `matrix.room.messages.read`, `matrix.room.members.read`, `matrix.room.pins.read`, `matrix.room.threads.read` | read · this room |
+| matrix-room-send | `matrix.room.message.send` | write · this room |
+| matrix-profile | `matrix.profile.read` | read · account |
+
+Ungated plumbing every app has: `host.env.read` (`"env"`),
+`permissions.query`, `permissions.request`, and the hooks
+`on_permissions_changed(caps)` / `on_app_resize(w, h)`.
+
+`host.has()` accepts either a group id (`host.has("network")`) or a
+capability id (`host.has("matrix.room.members.read")`), and
+`host.capabilities()` lists both. Check the capability you are about to use:
+the group may be allowed while that one ability is blocked.
+
+Only the ids in the table above exist in this Robrix. Anything else (other
+Matrix reads or writes, navigation, live event hooks) is refused with
+`not available in this Robrix` — do not invent service names; fall back.
+
 **Declaring is not granting.** Sensitive capabilities (`network`,
 `location`, `notifications`, `clipboard-read`, `ipc`) prompt the user the
 first time you use them, and the answer can be "no". The rest
