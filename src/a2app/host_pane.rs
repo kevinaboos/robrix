@@ -159,7 +159,8 @@ impl MiniAppHostPaneRef {
     pub fn open_app(&self, cx: &mut Cx, manifest: &MiniAppManifest, grants: Vec<String>) {
         let Some(mut inner) = self.borrow_mut() else { return };
         let uid = inner.widget_uid();
-        if inner.host_set.ensure_host(cx, uid, manifest, &grants, &manifest.id).is_none() {
+        let tag = instance_tag_for(manifest);
+        if inner.host_set.ensure_host(cx, uid, manifest, &grants, &tag).is_none() {
             return;
         }
         inner.active = Some(manifest.id.clone());
@@ -202,7 +203,8 @@ impl MiniAppHostPaneRef {
         } else {
             let Some(mut inner) = self.borrow_mut() else { return };
             let uid = inner.widget_uid();
-            inner.host_set.ensure_host(cx, uid, manifest, &grants, &manifest.id);
+            let tag = instance_tag_for(manifest);
+            inner.host_set.ensure_host(cx, uid, manifest, &grants, &tag);
         }
     }
 
@@ -230,5 +232,16 @@ impl MiniAppHostPaneRef {
         self.borrow()
             .map(|inner| inner.host_set.running_ids())
             .unwrap_or_default()
+    }
+}
+
+/// The host tag for an app hosted in the modal: room-scoped apps keep their
+/// room binding here too, so their `matrix.*` calls resolve that room.
+fn instance_tag_for(manifest: &a2app_core::manifest::MiniAppManifest) -> String {
+    match &manifest.scope {
+        a2app_core::manifest::A2AppScope::Room { room_id } => {
+            a2app_core::manifest::instance_tag(&manifest.id, Some(room_id))
+        }
+        _ => manifest.id.clone(),
     }
 }

@@ -164,6 +164,8 @@ pub enum A2AppOp {
     ImportFile(PathBuf),
     RestoreVersion { app_id: MiniAppId, stamp: String },
     SetPermission { app_id: MiniAppId, perm: Permission, state: GrantState },
+    /// A single ability's own answer under its group (`Ask` = follow group).
+    SetCapability { app_id: MiniAppId, cap_id: String, state: GrantState },
     Unrestrict(MiniAppId),
     /// Starts a generation; `Modify` intent is classified from the text.
     StartGeneration { request: String, room_id: Option<OwnedRoomId> },
@@ -479,6 +481,18 @@ fn apply_op(cx: &mut Cx, ui: &WidgetRef, op: A2AppOp) {
             apply_permission_to_running(cx, ui, &app_id, perm);
             ui.redraw(cx);
         }
+        A2AppOp::SetCapability { app_id, cap_id, state: new_state } => {
+            let Some(cap) = a2app_core::capabilities::by_id(&cap_id) else { return };
+            with_a2app(|state| {
+                state.permissions.set_capability(&app_id, cap.id, new_state);
+                state.perms_dirty = true;
+            });
+            publish_grants(cx);
+            if let Some(group) = cap.group {
+                apply_permission_to_running(cx, ui, &app_id, group);
+            }
+            ui.redraw(cx);
+        }
         A2AppOp::Unrestrict(app_id) => {
             with_a2app(|state| {
                 state.permissions.unrestrict(&app_id);
@@ -731,11 +745,14 @@ fn refresh_console(state: &mut A2AppState, force: bool) {
 
 fn process_broker(cx: &mut Cx, ui: &WidgetRef) {
     let asks = with_a2app(|state| {
-        let A2AppState { broker, registry, permissions, foreground_app, .. } = state;
+        let A2AppState { broker, registry, permissions, foreground_app, room_instances, matrix_read_only, .. } = state;
+        let is_docked = |app_id: &str| room_instances.get(app_id).is_some_and(|r| !r.is_empty());
         broker.process(cx, BrokerCtx {
             registry,
             permissions,
             foreground_app: foreground_app.as_deref(),
+            is_docked: &is_docked,
+            matrix_read_only: *matrix_read_only,
         })
     }).unwrap_or_default();
 
@@ -796,7 +813,19 @@ fn apply_broker_ask(cx: &mut Cx, ui: &WidgetRef, ask: BrokerAsk) {
             ui.redraw(cx);
         }
         BrokerAsk::IpcDeliver { reply, from, from_heap, to, data_json } => {
-            let delivered = host_pane(cx, ui).deliver_ipc(cx, from_heap, &from, &to, &data_json);
+            let modal = host_pane(cx, ui).deliver_ipc(cx, from_heap, &from, &to, &data_json);
+            let docked = with_a2app(|state| {
+                state.room_instances.get(&to).is_some_and(|r| !r.is_empty())
+            }).unwrap_or(false);
+            if docked {
+                cx.action(DockCmd::DeliverIpc {
+                    from_heap,
+                    from: from.clone(),
+                    to: to.clone(),
+                    data_json: data_json.clone(),
+                });
+            }
+            let delivered = modal || docked;
             let body = format!("{{\"delivered\":{delivered}}}");
             services::respond(cx, reply, Ok(&body));
         }
@@ -875,11 +904,16 @@ fn show_next_permission_prompt(cx: &mut Cx, ui: &WidgetRef) {
         let (app_name, app_icon, reason) = state.registry.get(&prompt.app_id)
             .map(|m| (m.name.clone(), m.icon.clone(), m.reason_for(prompt.perm).map(str::to_string)))
             .unwrap_or_else(|| (prompt.app_id.clone(), String::new(), None));
+        // Name the exact ability that asked, not just its group.
+        let capability = prompt.parked.first()
+            .and_then(|r| a2app_core::capabilities::for_service(&r.service))
+            .map(|c| c.title.to_string());
         let info = PromptInfo {
             app_name,
             app_icon,
             perm: prompt.perm,
             reason,
+            capability,
         };
         state.active_prompt = Some(prompt);
         Some(info)
@@ -931,11 +965,14 @@ fn answer_permission_prompt(cx: &mut Cx, ui: &WidgetRef, answer: PermissionPromp
     for request in prompt.parked {
         if granted {
             let asks = with_a2app(|state| {
-                let A2AppState { broker, registry, permissions, foreground_app, .. } = state;
+                let A2AppState { broker, registry, permissions, foreground_app, room_instances, matrix_read_only, .. } = state;
+                let is_docked = |app_id: &str| room_instances.get(app_id).is_some_and(|r| !r.is_empty());
                 broker.dispatch_after_grant(cx, BrokerCtx {
                     registry,
                     permissions,
                     foreground_app: foreground_app.as_deref(),
+                    is_docked: &is_docked,
+                    matrix_read_only: *matrix_read_only,
                 }, request)
             }).unwrap_or_default();
             for ask in asks {

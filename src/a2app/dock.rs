@@ -225,6 +225,9 @@ pub enum DockCmd {
     UpdateCaps { app_id: MiniAppId, grants: Vec<String> },
     /// Restart this app's running instances with fresh grants.
     Restart { app_id: MiniAppId, grants: Vec<String> },
+    /// Deliver an IPC message to `to`'s docked instances (skipping the
+    /// sender's own heap).
+    DeliverIpc { from_heap: usize, from: MiniAppId, to: MiniAppId, data_json: String },
     #[default]
     None,
 }
@@ -321,6 +324,10 @@ impl Widget for MiniAppDock {
                     }
                     Some(DockCmd::Restart { app_id, grants }) => {
                         self.restart_app(cx, app_id, grants);
+                        continue;
+                    }
+                    Some(DockCmd::DeliverIpc { from_heap, from, to, data_json }) => {
+                        self.host_set.deliver_ipc(cx, *from_heap, from, to, data_json);
                         continue;
                     }
                     Some(DockCmd::None) | None => {}

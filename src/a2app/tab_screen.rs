@@ -145,6 +145,10 @@ impl Widget for MiniAppTabScreen {
                         }
                         continue;
                     }
+                    Some(DockCmd::DeliverIpc { from_heap, from, to, data_json }) => {
+                        self.host_set.deliver_ipc(cx, *from_heap, from, to, data_json);
+                        continue;
+                    }
                     Some(DockCmd::Restart { app_id, grants }) => {
                         if self.host_set.is_running(app_id) {
                             let Some(room_id) = self.room_id.clone() else { continue };
