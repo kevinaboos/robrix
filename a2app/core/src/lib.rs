@@ -20,6 +20,8 @@ pub mod bundle;
 pub mod versions;
 /// The permission model: declarations, grants, prompts, restrictions.
 pub mod permissions;
+/// The tagged catalog of every ability, layered over the permission groups.
+pub mod capabilities;
 /// Built-in sample apps.
 pub mod builtin;
 /// On-disk persistence for apps, grants, and registry state.
