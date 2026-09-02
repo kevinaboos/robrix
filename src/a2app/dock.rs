@@ -40,7 +40,7 @@ script_mod! {
                 let sdf = Sdf2d.viewport(self.pos * self.rect_size)
                 let w = self.rect_size.x
                 let h = self.rect_size.y
-                let dot = vec4(1.0, 1.0, 1.0, 0.9)
+                let dot = vec4(1.0, 1.0, 1.0, 0.92)
                 if h > w {
                     sdf.box(0.0, 0.0, w, h, w * 0.5)
                     sdf.fill(self.color)
@@ -577,9 +577,8 @@ impl MiniAppDock {
         self.view.redraw(cx);
     }
 
-    /// Keeps each pane's header buttons on as few lines as they need: one
-    /// row while the title still has room, otherwise wrapped (four buttons
-    /// become two rows of two) so the title keeps its width.
+    /// One row of buttons while the title has width, otherwise as many rows
+    /// as the pane's height allows so the title gets the width back.
     fn reflow_headers(&mut self, cx: &mut Cx) {
         const BUTTONS: &[&[LiveId]] = &[
             ids!(pane_edge_button),
@@ -593,10 +592,14 @@ impl MiniAppDock {
             if inst.minimized {
                 continue;
             }
-            let pane_width = inst.pane.area().rect(cx).size.x;
-            if pane_width <= 0.0 {
+            // Measure the header itself, not the pane: the frame's padding
+            // and the app glyph are not the title's to spend.
+            let header_width = inst.pane.view(cx, ids!(header)).area().rect(cx).size.x;
+            let glyph_width = inst.pane.label(cx, ids!(pane_glyph)).area().rect(cx).size.x;
+            if header_width <= 0.0 {
                 continue;
             }
+            let for_title_and_buttons = header_width - glyph_width - HEADER_SPACING * 2.0;
             let widths: Vec<f64> = BUTTONS
                 .iter()
                 .map(|id| inst.pane.button(cx, id).area().rect(cx).size.x)
@@ -605,10 +608,31 @@ impl MiniAppDock {
             if widths.iter().any(|w| *w <= 0.0) {
                 continue;
             }
-            let row: f64 = widths.iter().sum::<f64>() + SPACING * (widths.len() - 1) as f64;
             let widest = widths.iter().copied().fold(0.0_f64, f64::max);
-            let pair = widest * 2.0 + SPACING;
-            let target = if pane_width - row >= HEADER_TITLE_MIN { row } else { pair };
+            let count = widths.len();
+            let box_width = |cols: usize| {
+                widest * cols as f64 + SPACING * (cols - 1) as f64
+            };
+            // Widest arrangement the title can still afford, 4 down to 1.
+            let mut cols = (1..=count)
+                .rev()
+                .find(|c| for_title_and_buttons - box_width(*c) >= HEADER_TITLE_MIN)
+                .unwrap_or(1);
+
+            // Off a single row, keep trading columns for rows until the
+            // stack would eat too much of a short pane.
+            let button_height = inst.pane.button(cx, ids!(pane_close_button)).area().rect(cx).size.y;
+            let pane_height = inst.pane.area().rect(cx).size.y;
+            if cols < count && button_height > 0.0 && pane_height > 0.0 {
+                let stack_height = |cols: usize| {
+                    let rows = count.div_ceil(cols) as f64;
+                    button_height * rows + SPACING * (rows - 1.0)
+                };
+                while cols > 1 && stack_height(cols - 1) <= pane_height * HEADER_STACK_SHARE {
+                    cols -= 1;
+                }
+            }
+            let target = box_width(cols);
             if (target - inst.header_width).abs() > 0.5 {
                 updates.push((app_id.clone(), target));
             }
@@ -738,6 +762,11 @@ const GRAB_DRAG: Vec4 = Vec4 { x: 0.33, y: 0.33, z: 0.33, w: 1.0 };
 /// What the title needs before the header stops giving room to the buttons
 /// and wraps them into a second line instead.
 const HEADER_TITLE_MIN: f64 = 104.0;
+/// How much of a pane's height the stacked header buttons may take before
+/// they stop growing; the rest belongs to the app.
+const HEADER_STACK_SHARE: f64 = 0.5;
+/// The header row's own spacing, between the glyph, the title and the buttons.
+const HEADER_SPACING: f64 = 4.0;
 /// `PaneFrame`'s border width; the grip centres on the middle of that line.
 const PANE_BORDER: f64 = 1.0;
 /// The grabbable strip, straddling that border.
