@@ -18,7 +18,7 @@ metadata.makepad-auto-version = "zqpv-Yj-K7WNVK2I8h5Okhho46Q="
 # makepad-code-editor = { git = "https://github.com/makepad/makepad", branch = "dev" }
 
 makepad-widgets = { workspace = true }
-makepad-code-editor = { git = "https://github.com/kevinaboos/makepad", branch = "windows_backend_robustness" }
+makepad-code-editor = { git = "https://github.com/kevinaboos/makepad", branch = "splash_host_fixes" }
 
 
 robius-directories = { git = "https://github.com/project-robius/robius" }
@@ -163,7 +163,9 @@ members = ["a2app/core", "a2app/agent"]
 ## One source of truth for the makepad pin: the a2app crates inherit it, so
 ## a repin here can't leave them on a different fork or branch.
 [workspace.dependencies]
-makepad-widgets = { git = "https://github.com/kevinaboos/makepad", branch = "windows_backend_robustness", features = ["serde"] }
+## makepad dev + the Splash isolate-host fixes a2app needs (makepad/makepad#1208).
+## Back to the shared pin once that lands.
+makepad-widgets = { git = "https://github.com/kevinaboos/makepad", branch = "splash_host_fixes", features = ["serde"] }
 
 
 [patch.crates-io]

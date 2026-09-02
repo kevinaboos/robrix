@@ -60,6 +60,17 @@ subscription: `ROBRIX_AGENT_CMD="claude-code-acp" cargo run --features a2app`
 `ROBRIX_AGENT_MODEL=<model>` is forwarded to that agent as `ANTHROPIC_MODEL`
 (the Claude-based agents read it); use `opus` when testing generation.
 
+## Makepad pin
+
+Mini-app hosting needs three fixes to Makepad's Splash isolate host that are
+not upstream yet: inserted subtrees staying reachable across a widget-tree
+refresh, the script GC surviving a foreign-heap value, and panic containment
+at every isolate entry point (without which a mini-app can lose its renders
+or take Robrix down with it). They are up as makepad/makepad#1208, and the
+`makepad-widgets` pin points at the branch behind that PR
+(`kevinaboos/makepad` `splash_host_fixes`, which is Makepad `dev` plus those
+three commits). Move back to Robrix's shared pin once the PR lands.
+
 ## Extra cargo features
 
 | Feature | Effect |
