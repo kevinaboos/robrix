@@ -630,12 +630,33 @@ impl WidgetMatchEvent for MainDesktopUI {
                     should_save_dock_action = true;
                     continue;
                 }
-                if let Some(MiniAppTabScreenAction::Vacated { app_id, room_id }) = action.downcast_ref() {
+                if let Some(MiniAppTabScreenAction::Vacated { app_id, room_id, room_name, returning }) = action.downcast_ref() {
                     let tab_id = Self::mini_app_tab_id(app_id, room_id);
                     if self.open_mini_app_tabs.remove(&tab_id).is_some() {
                         self.view.dock(cx, ids!(dock)).close_tab(cx, tab_id);
                         self.init_all_visible_tabs(cx);
                         should_save_dock_action = true;
+                    }
+                    // "Return to room" put the app back in that room's dock, so
+                    // show the room: closing its tab would otherwise leave the
+                    // user on whatever tab happened to be next.
+                    if *returning {
+                        let room_tab = LiveId::from_str(room_id.as_str());
+                        let room = self.open_rooms.get(&room_tab).cloned().unwrap_or_else(|| {
+                            SelectedRoom::JoinedRoom {
+                                room_name_id: RoomNameId::new(
+                                    matrix_sdk::RoomDisplayName::Named(room_name.clone()),
+                                    room_id.clone(),
+                                ),
+                            }
+                        });
+                        self.focus_or_create_tab(cx, room);
+                        // Re-issued because a room screen created just now missed
+                        // the tab screen's own open in this same action pass.
+                        cx.action(DockCmd::Open {
+                            app_id: app_id.clone(),
+                            room_id: room_id.clone(),
+                        });
                     }
                     continue;
                 }

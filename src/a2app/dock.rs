@@ -21,8 +21,8 @@ script_mod! {
     // The row of minimized-app chips, right-aligned above the room content.
     mod.widgets.MiniAppChipsRow = set_type_default() do #(MiniAppChipsRow::register_widget(vm)) {
         ..mod.widgets.RoundedView
-        width: Fill, height: 0
-        draw_bg +: { color: #0000 }
+        width: Fill, height: Fill
+        show_bg: false
     }
 
     // One edge of the dock; its panes are owned by the MiniAppDock and drawn
@@ -41,13 +41,12 @@ script_mod! {
     mod.widgets.MiniAppDock = set_type_default() do #(MiniAppDock::register_widget(vm)) {
         ..mod.widgets.RoundedView
         width: Fill, height: Fill
-        flow: Down
+        flow: Overlay
 
         body := View {
             width: Fill, height: Fill
             flow: Down
             edge_top := mod.widgets.MiniAppEdge {}
-            chips_row := mod.widgets.MiniAppChipsRow {}
             mid := View {
                 width: Fill, height: Fill
                 flow: Right
@@ -57,6 +56,10 @@ script_mod! {
             }
             edge_bottom := mod.widgets.MiniAppEdge {}
         }
+
+        // Floats over the room content: a minimized app must not push the
+        // timeline down, so this layer reserves no space of its own.
+        chips_row := mod.widgets.MiniAppChipsRow {}
 
         // The frame around one docked instance: header bar + the app itself.
         // A TEMPLATE: kept invisible so the dock's View never draws it.
@@ -183,6 +186,13 @@ script_mod! {
             visible: false
             padding: Inset{top: 5, bottom: 5, left: 10, right: 10},
             icon_walk: Walk{width: 0, height: 0, margin: 0}
+            draw_bg +: {
+                color: #xF2F4F8E0
+                color_hover: #xE6E9EFF2
+                color_down: #xD8DCE6F2
+                border_color: #x00000022
+                border_size: 1.0
+            }
         }
 
         AppHost := mod.widgets.MiniAppHost { visible: false }
@@ -398,7 +408,6 @@ impl Widget for MiniAppDock {
 }
 
 const CHIP_WIDTH: f64 = 150.0;
-const CHIP_ROW_HEIGHT: f64 = 34.0;
 
 enum PaneButton {
     Close,
@@ -594,10 +603,29 @@ pub struct MiniAppEdge {
     #[rust] panes: Vec<(MiniAppId, WidgetRef)>,
     #[rust(300.0)] size: f64,
     #[rust] drag: Option<(f64, f64)>,
+    #[rust] hovering: bool,
     #[rust] handle_area: Area,
 }
 
+/// Grip colors, mirroring a Makepad splitter: barely there until you go for it.
+const GRAB_IDLE: Vec4 = Vec4 { x: 0.78, y: 0.78, z: 0.78, w: 1.0 };
+const GRAB_HOVER: Vec4 = Vec4 { x: 0.55, y: 0.55, z: 0.55, w: 1.0 };
+const GRAB_DRAG: Vec4 = Vec4 { x: 0.40, y: 0.40, z: 0.40, w: 1.0 };
+
 impl MiniAppEdge {
+    fn resize_cursor(&self) -> MouseCursor {
+        if self.side.is_vertical() { MouseCursor::ColResize } else { MouseCursor::RowResize }
+    }
+
+    /// Slop around the strip, across its thin axis only.
+    fn grab_inset(&self, slop: f64) -> Inset {
+        if self.side.is_vertical() {
+            Inset { left: slop, right: slop, top: 0.0, bottom: 0.0 }
+        } else {
+            Inset { left: 0.0, right: 0.0, top: slop, bottom: slop }
+        }
+    }
+
     /// Writes this edge's size into its own view walk; the parent flow
     /// reads it on the next layout pass.
     fn apply_walk(&mut self) {
@@ -616,10 +644,30 @@ impl Widget for MiniAppEdge {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
 
-        match event.hits(cx, self.handle_area) {
-            Hit::FingerDown(fe) => {
+        // Fingers are blunter than a cursor, so the strip takes a wider hit
+        // margin on touch, exactly as Makepad's own Splitter does.
+        let hit = event.hits_with_options(
+            cx,
+            self.handle_area,
+            HitOptions::new()
+                .with_margin(self.grab_inset(3.0))
+                .with_touch_margin(self.grab_inset(8.0)),
+        );
+        match hit {
+            Hit::FingerHoverIn(_) => {
+                cx.set_cursor(self.resize_cursor());
+                self.hovering = true;
+                self.draw_handle.redraw(cx);
+            }
+            Hit::FingerHoverOut(_) => {
+                self.hovering = false;
+                self.draw_handle.redraw(cx);
+            }
+            Hit::FingerDown(fe) if fe.is_primary_hit() => {
+                cx.set_cursor(self.resize_cursor());
                 let start = if self.side.is_vertical() { fe.abs.x } else { fe.abs.y };
                 self.drag = Some((start, self.size));
+                self.draw_handle.redraw(cx);
             }
             Hit::FingerMove(fe) => {
                 if let Some((start, start_size)) = self.drag {
@@ -631,11 +679,15 @@ impl Widget for MiniAppEdge {
                     };
                     self.size = (start_size + delta).max(EDGE_MIN_SIZE);
                     self.apply_walk();
-                    self.redraw(cx);
+                    // Our own walk changed, and only the PARENT's layout pass
+                    // reads it; redrawing just ourselves would keep the old rect.
+                    cx.redraw_all();
                 }
             }
-            Hit::FingerUp(_) => {
+            Hit::FingerUp(fe) => {
                 self.drag = None;
+                self.hovering = fe.is_over && fe.device.has_hovers();
+                self.draw_handle.redraw(cx);
             }
             _ => {}
         }
@@ -712,21 +764,30 @@ impl Widget for MiniAppEdge {
         // Just a little grab pill centered on the inner border, not a
         // full-length splitter bar.
         let grab_rect = if self.side.is_vertical() {
+            let len = GRAB_LEN.min(handle_rect.size.y * 0.5);
             Rect {
                 pos: Vec2d {
                     x: handle_rect.pos.x + (EDGE_HANDLE - GRAB_THICK) * 0.5,
-                    y: handle_rect.pos.y + (handle_rect.size.y - GRAB_LEN) * 0.5,
+                    y: handle_rect.pos.y + (handle_rect.size.y - len) * 0.5,
                 },
-                size: Vec2d { x: GRAB_THICK, y: GRAB_LEN },
+                size: Vec2d { x: GRAB_THICK, y: len },
             }
         } else {
+            let len = GRAB_LEN.min(handle_rect.size.x * 0.5);
             Rect {
                 pos: Vec2d {
-                    x: handle_rect.pos.x + (handle_rect.size.x - GRAB_LEN) * 0.5,
+                    x: handle_rect.pos.x + (handle_rect.size.x - len) * 0.5,
                     y: handle_rect.pos.y + (EDGE_HANDLE - GRAB_THICK) * 0.5,
                 },
-                size: Vec2d { x: GRAB_LEN, y: GRAB_THICK },
+                size: Vec2d { x: len, y: GRAB_THICK },
             }
+        };
+        // A splitter-style grip: subtle at rest, darker under the cursor, so
+        // it reads as a divider you can grab rather than a scrollbar.
+        self.draw_handle.color = match (self.drag.is_some(), self.hovering) {
+            (true, _) => GRAB_DRAG,
+            (_, true) => GRAB_HOVER,
+            _ => GRAB_IDLE,
         };
         self.draw_grab.draw_abs(cx, handle_rect);
         self.draw_handle.draw_abs(cx, grab_rect);
@@ -779,16 +840,6 @@ pub struct MiniAppChipsRow {
     #[rust] chips: Vec<(MiniAppId, WidgetRef)>,
 }
 
-impl MiniAppChipsRow {
-    fn apply_walk(&mut self) {
-        self.view.walk.height = if self.chips.is_empty() {
-            Size::Fixed(0.0)
-        } else {
-            Size::Fixed(CHIP_ROW_HEIGHT)
-        };
-    }
-}
-
 impl Widget for MiniAppChipsRow {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
@@ -823,12 +874,10 @@ impl MiniAppChipsRowRef {
         if !inner.chips.iter().any(|(id, _)| id == app_id) {
             inner.chips.push((app_id.to_string(), chip));
         }
-        inner.apply_walk();
     }
 
     pub fn remove_chip(&self, app_id: &str) {
         let Some(mut inner) = self.borrow_mut() else { return };
         inner.chips.retain(|(id, _)| id != app_id);
-        inner.apply_walk();
     }
 }

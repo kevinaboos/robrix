@@ -83,8 +83,15 @@ pub enum A2AppTabRequest {
 #[derive(Clone, Debug, Default)]
 pub enum MiniAppTabScreenAction {
     /// The instance left the tab (returned to its room or was stopped);
-    /// the tab itself should be closed.
-    Vacated { app_id: MiniAppId, room_id: OwnedRoomId },
+    /// the tab itself should be closed. `returning` means the user asked for
+    /// the room back, so the host should show it rather than leaving them
+    /// wherever the closed tab dropped them.
+    Vacated {
+        app_id: MiniAppId,
+        room_id: OwnedRoomId,
+        room_name: String,
+        returning: bool,
+    },
     #[default]
     None,
 }
@@ -95,6 +102,9 @@ pub struct MiniAppTabScreen {
     #[rust] host_set: SplashHostSet,
     #[rust] app_id: Option<MiniAppId>,
     #[rust] room_id: Option<OwnedRoomId>,
+    /// The room's display name, kept so returning can name the room's tab
+    /// even when it is no longer open.
+    #[rust] room_name: String,
 }
 
 impl ScriptHook for MiniAppTabScreen {
@@ -205,6 +215,8 @@ impl MiniAppTabScreen {
         cx.action(MiniAppTabScreenAction::Vacated {
             app_id: app_id.clone(),
             room_id: room_id.clone(),
+            room_name: std::mem::take(&mut self.room_name),
+            returning: back_to_room,
         });
         if back_to_room {
             cx.action(DockCmd::Open { app_id, room_id });
@@ -230,6 +242,7 @@ impl MiniAppTabScreenRef {
         inner.view.label(cx, ids!(tab_glyph)).set_text(cx, &manifest.icon);
         inner.view.label(cx, ids!(tab_title)).set_text(cx, &manifest.name);
         inner.view.label(cx, ids!(tab_room)).set_text(cx, room_name);
+        inner.room_name = room_name.to_string();
         cx.action(MiniAppDockAction::Opened {
             app_id: app_id.clone(),
             room_id: room_id.clone(),
