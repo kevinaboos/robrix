@@ -46,22 +46,22 @@ script_mod! {
                     sdf.fill(self.color)
                     let gap = w * 0.52
                     let cy = h * 0.5
-                    sdf.circle(w * 0.5, cy - gap * 2.0, 0.9)
-                    sdf.circle(w * 0.5, cy - gap, 0.9)
-                    sdf.circle(w * 0.5, cy, 0.9)
-                    sdf.circle(w * 0.5, cy + gap, 0.9)
-                    sdf.circle(w * 0.5, cy + gap * 2.0, 0.9)
+                    sdf.circle(w * 0.5, cy - gap * 2.0, 1.15)
+                    sdf.circle(w * 0.5, cy - gap, 1.15)
+                    sdf.circle(w * 0.5, cy, 1.15)
+                    sdf.circle(w * 0.5, cy + gap, 1.15)
+                    sdf.circle(w * 0.5, cy + gap * 2.0, 1.15)
                     return sdf.fill(dot)
                 }
                 sdf.box(0.0, 0.0, w, h, h * 0.5)
                 sdf.fill(self.color)
                 let gap = h * 0.52
                 let cx = w * 0.5
-                sdf.circle(cx - gap * 2.0, h * 0.5, 0.9)
-                sdf.circle(cx - gap, h * 0.5, 0.9)
-                sdf.circle(cx, h * 0.5, 0.9)
-                sdf.circle(cx + gap, h * 0.5, 0.9)
-                sdf.circle(cx + gap * 2.0, h * 0.5, 0.9)
+                sdf.circle(cx - gap * 2.0, h * 0.5, 1.15)
+                sdf.circle(cx - gap, h * 0.5, 1.15)
+                sdf.circle(cx, h * 0.5, 1.15)
+                sdf.circle(cx + gap, h * 0.5, 1.15)
+                sdf.circle(cx + gap * 2.0, h * 0.5, 1.15)
                 return sdf.fill(dot)
             }
         }
@@ -755,9 +755,9 @@ pub struct MiniAppEdge {
 
 /// Grip colors: darker than the pane border it sits on, so it reads as a
 /// handle rather than part of the outline.
-const GRAB_IDLE: Vec4 = Vec4 { x: 0.72, y: 0.72, z: 0.72, w: 1.0 };
-const GRAB_HOVER: Vec4 = Vec4 { x: 0.47, y: 0.47, z: 0.47, w: 1.0 };
-const GRAB_DRAG: Vec4 = Vec4 { x: 0.33, y: 0.33, z: 0.33, w: 1.0 };
+const GRAB_IDLE: Vec4 = Vec4 { x: 0.62, y: 0.62, z: 0.62, w: 1.0 };
+const GRAB_HOVER: Vec4 = Vec4 { x: 0.42, y: 0.42, z: 0.42, w: 1.0 };
+const GRAB_DRAG: Vec4 = Vec4 { x: 0.30, y: 0.30, z: 0.30, w: 1.0 };
 
 /// What the title needs before the header stops giving room to the buttons
 /// and wraps them into a second line instead.
