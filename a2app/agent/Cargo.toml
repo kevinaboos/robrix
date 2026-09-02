@@ -10,8 +10,8 @@ version = "0.1.0"
 [dependencies]
 a2app-core = { path = "../core" }
 
-## Must stay on the same source/branch as Robrix's own makepad dep.
-makepad-widgets = { git = "https://github.com/makepad/makepad", branch = "dev", features = ["serde"] }
+## Inherits Robrix's own makepad pin from the workspace root.
+makepad-widgets = { workspace = true }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

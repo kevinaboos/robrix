@@ -8,9 +8,9 @@ repository = "https://github.com/project-robius/robrix"
 version = "0.1.0"
 
 [dependencies]
-## Must stay on the same source/branch as Robrix's own makepad dep,
-## or the Splash widget/bridge types won't match.
-makepad-widgets = { git = "https://github.com/makepad/makepad", branch = "dev", features = ["serde"] }
+## Inherits Robrix's own makepad pin from the workspace root, so the
+## Splash widget/bridge types always match.
+makepad-widgets = { workspace = true }
 
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

@@ -1,5 +1,5 @@
 diff --git a/platform/script/src/gc.rs b/platform/script/src/gc.rs
-index eaa71da1e..14e921bb5 100644
+index eaa71da1..14e921bb 100644
 --- a/platform/script/src/gc.rs
 +++ b/platform/script/src/gc.rs
 @@ -87,44 +87,77 @@ macro_rules! set_static_val {
@@ -99,7 +99,7 @@ index eaa71da1e..14e921bb5 100644
          }
      };
 diff --git a/platform/script/src/gen_index.rs b/platform/script/src/gen_index.rs
-index 5e4aebc09..cbf5be43c 100644
+index 5e4aebc0..cbf5be43 100644
 --- a/platform/script/src/gen_index.rs
 +++ b/platform/script/src/gen_index.rs
 @@ -251,6 +251,32 @@ fn check_generation<R: GenRef>(
@@ -159,16 +159,27 @@ index 5e4aebc09..cbf5be43c 100644
              slot.generation,
              r.generation(),
 diff --git a/widgets/src/splash.rs b/widgets/src/splash.rs
-index 3bf815751..67abd9455 100644
+index b8e27f7e..ea4d376a 100644
 --- a/widgets/src/splash.rs
 +++ b/widgets/src/splash.rs
-@@ -174,15 +174,18 @@ fn eval_body(&mut self, cx: &mut Cx) {
+@@ -174,25 +174,28 @@ fn eval_body(&mut self, cx: &mut Cx) {
          };
  
          let vm_id = self.vm_id;
 -        let new_view = cx.with_script_vm_id(vm_id, |vm| {
 -            let value = vm.with_instruction_limit(SPLASH_EVAL_INSTRUCTION_LIMIT, |vm| {
 -                vm.eval_with_append_source(script_mod, &code, NIL.into())
+-            });
+-            if !value.is_err() && !value.is_nil() {
+-                Some(View::script_from_value(vm, value))
+-            } else {
+-                // A body that fails to evaluate leaves the Splash showing
+-                // its previous view — or nothing at all. Say so: a silent
+-                // blank widget is the hardest bug in this file to find.
+-                if value.is_err() {
+-                    for e in vm.take_errors() {
+-                        log!("splash: {}", e);
+-                    }
 +        let mut new_view = None;
 +        crate::widget_async::contain_isolate_panic("app source eval", || {
 +            new_view = cx.with_script_vm_id(vm_id, |vm| {
@@ -177,19 +188,27 @@ index 3bf815751..67abd9455 100644
 +                });
 +                if !value.is_err() && !value.is_nil() {
 +                    Some(View::script_from_value(vm, value))
-+                } else {
+                 } else {
+-                    log!("splash: script body evaluated to nothing (no root view)");
++                    // A body that fails to evaluate leaves the Splash showing
++                    // its previous view — or nothing at all. Say so: a silent
++                    // blank widget is the hardest bug in this file to find.
++                    if value.is_err() {
++                        for e in vm.take_errors() {
++                            log!("splash: {}", e);
++                        }
++                    } else {
++                        log!("splash: script body evaluated to nothing (no root view)");
++                    }
 +                    None
-+                }
-             });
--            if !value.is_err() && !value.is_nil() {
--                Some(View::script_from_value(vm, value))
--            } else {
+                 }
 -                None
 -            }
++            });
          });
  
-         if let Some(view) = new_view {
-@@ -280,7 +283,9 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
+         if let Some(mut view) = new_view {
+@@ -297,7 +300,9 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
          code: String::new(),
          values: vec![],
      };
@@ -200,7 +219,7 @@ index 3bf815751..67abd9455 100644
          // Capture instead of logging: mid-eval errors otherwise go straight to
          // the error log (see `ScriptVm::take_errors`) and can't be returned.
          vm.bx.captured_errors = Some(Vec::new());
-@@ -300,13 +305,14 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
+@@ -317,13 +322,14 @@ pub fn validate_splash_body(cx: &mut Cx, body: &str, allow_net: bool) -> Vec<Str
          }
          errors
      });
@@ -216,7 +235,7 @@ index 3bf815751..67abd9455 100644
  }
  
  impl WidgetNode for Splash {
-@@ -391,7 +397,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
+@@ -408,7 +414,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
          let Some(scope) = self.body_scope(cx) else {
              return false;
          };
@@ -227,7 +246,7 @@ index 3bf815751..67abd9455 100644
              // NoTrap: this is an existence probe for an OPTIONAL hook. A
              // trapping lookup queues a NotFound into the error log even though
              // the miss is handled right here — every host broadcast (e.g.
-@@ -405,7 +413,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
+@@ -422,7 +430,9 @@ pub fn call_script_fn(&mut self, cx: &mut Cx, name: LiveId, args: &[ScriptValue]
                  vm.call(fnval, args);
              });
              true
@@ -238,7 +257,7 @@ index 3bf815751..67abd9455 100644
      }
  
      /// Like [`Self::call_script_fn`], but with string arguments — those are
-@@ -416,7 +426,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
+@@ -433,7 +443,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
          let Some(scope) = self.body_scope(cx) else {
              return false;
          };
@@ -249,7 +268,7 @@ index 3bf815751..67abd9455 100644
              let fnval = vm.bx.heap.scope_value(scope, name, NoTrap);
              if fnval.is_nil() || fnval.is_err() {
                  return false;
-@@ -429,7 +441,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
+@@ -446,7 +458,9 @@ pub fn call_script_fn_with_strings(&mut self, cx: &mut Cx, name: LiveId, args: &
                  vm.call(fnval, &vals);
              });
              true
@@ -261,7 +280,7 @@ index 3bf815751..67abd9455 100644
  
      /// Sets whether this Splash's isolate gets the networking runtime. Must be
 diff --git a/widgets/src/splash_host.rs b/widgets/src/splash_host.rs
-index 43fb8fbd3..6b4d3861b 100644
+index 43fb8fbd..6b4d3861 100644
 --- a/widgets/src/splash_host.rs
 +++ b/widgets/src/splash_host.rs
 @@ -153,6 +153,7 @@ pub fn splash_host_respond(
@@ -294,10 +313,10 @@ index 43fb8fbd3..6b4d3861b 100644
          return SplashRespondOutcome::IsolateGone;
      }
 diff --git a/widgets/src/widget_async.rs b/widgets/src/widget_async.rs
-index 08271c416..ad446cc17 100644
+index 10e64cf1..07b2abec 100644
 --- a/widgets/src/widget_async.rs
 +++ b/widgets/src/widget_async.rs
-@@ -281,7 +281,11 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
+@@ -285,7 +285,11 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
      let outer_vm = cx.script_vm.take();
      cx.script_vm = isolated.vm.take();
  
@@ -310,7 +329,7 @@ index 08271c416..ad446cc17 100644
  
      isolated.vm = cx.script_vm.take();
      cx.script_vm = outer_vm;
-@@ -293,7 +297,30 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
+@@ -297,7 +301,30 @@ fn with_isolate_installed<R>(cx: &mut Cx, vm_id: SplashVmId, f: impl FnOnce(&mut
          .vms
          .insert(vm_id, isolated);
  
@@ -342,7 +361,7 @@ index 08271c416..ad446cc17 100644
  }
  
  /// A Splash isolate runs untrusted-ish user script on the UI thread; cap how long any
-@@ -424,10 +451,15 @@ fn with_script_vm_id<R>(&mut self, vm_id: SplashVmId, f: impl FnOnce(&mut Script
+@@ -428,10 +455,15 @@ fn with_script_vm_id<R>(&mut self, vm_id: SplashVmId, f: impl FnOnce(&mut Script
              return self.with_vm(f);
          }
          if vm_id == MAIN_SPLASH_VM_ID {
@@ -362,7 +381,7 @@ index 08271c416..ad446cc17 100644
              return self.with_vm(f);
          }
  
-@@ -445,10 +477,11 @@ fn with_script_vm_id_thread<R>(
+@@ -449,10 +481,11 @@ fn with_script_vm_id_thread<R>(
              return self.with_vm_thread(thread_id, f);
          }
          if vm_id == MAIN_SPLASH_VM_ID {
@@ -378,7 +397,7 @@ index 08271c416..ad446cc17 100644
              return self.with_vm_thread(thread_id, f);
          }
  
-@@ -569,9 +602,19 @@ pub(crate) fn update_global_ui_handle(cx: &mut Cx, root_uid: WidgetUid) {
+@@ -573,9 +606,19 @@ pub(crate) fn update_global_ui_handle(cx: &mut Cx, root_uid: WidgetUid) {
      if cx.global::<CxWidgetAsync>().global_ui_root_uid == root_uid {
          return;
      }
@@ -399,7 +418,7 @@ index 08271c416..ad446cc17 100644
          let ui_handle = vm.build_ui_handle_for_uid(root_uid);
          vm.set_injected_global(id!(ui), ui_handle);
      });
-@@ -917,9 +960,20 @@ fn widget_to_script_async_call_fwd(
+@@ -921,9 +964,20 @@ fn widget_to_script_async_call_fwd(
          from_method: LiveId,
      ) -> ScriptAsyncResult {
          let Some(vm_id) = self.script_ref_vm_id(&source) else {
@@ -420,7 +439,7 @@ index 08271c416..ad446cc17 100644
              vm.widget_to_script_async_call_fwd(
                  target_uid,
                  script_async,
-@@ -967,9 +1021,20 @@ fn widget_to_script_call_fwd(
+@@ -971,9 +1025,20 @@ fn widget_to_script_call_fwd(
          args: ScriptValue,
      ) {
          let Some(vm_id) = self.script_ref_vm_id(&source) else {
@@ -441,7 +460,7 @@ index 08271c416..ad446cc17 100644
              vm.widget_to_script_call_fwd(target_uid, me, source, script_fn, args);
          });
      }
-@@ -1171,22 +1236,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+@@ -1175,22 +1240,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
              .pop_front();
          if let Some(req) = req {
              progressed = true;
@@ -482,7 +501,7 @@ index 08271c416..ad446cc17 100644
              });
              continue;
          }
-@@ -1197,8 +1264,15 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+@@ -1201,8 +1268,15 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
              .pop_front();
          if let Some(req) = req {
              progressed = true;
@@ -498,7 +517,7 @@ index 08271c416..ad446cc17 100644
                  match widget_ref.script_call(vm, req.method, req.args.as_object().into()) {
                      ScriptAsyncResult::Return(value) => value,
                      ScriptAsyncResult::Pending => NIL,
-@@ -1228,15 +1302,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+@@ -1232,15 +1306,24 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
              if !is_paused {
                  on_widget_script_thread_completed(cx, req.vm_id, req.caller_thread, result);
              }
@@ -526,7 +545,7 @@ index 08271c416..ad446cc17 100644
              });
              continue;
          }
-@@ -1264,8 +1347,10 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
+@@ -1268,8 +1351,10 @@ fn pump_widget_async(cx: &mut Cx) -> bool {
          if let Some(iso) = state.isolated_vms.vms.get_mut(&SplashVmId(next)) {
              if let Some(bx) = iso.vm.as_mut() {
                  if bx.heap.needs_gc() {
@@ -539,7 +558,7 @@ index 08271c416..ad446cc17 100644
                  }
              }
          }
-@@ -1297,9 +1382,11 @@ fn script_timer_dispatch_hook(cx: &mut Cx, timer: &CxScriptTimer, time: ScriptVa
+@@ -1301,9 +1386,11 @@ fn script_timer_dispatch_hook(cx: &mut Cx, timer: &CxScriptTimer, time: ScriptVa
          Some(vm_id) => {
              // Same budget/limit as any other isolate entry, so a runaway timer callback
              // can't hang the host.
@@ -554,7 +573,7 @@ index 08271c416..ad446cc17 100644
                  });
              });
              true
-@@ -1335,3 +1422,339 @@ fn pump_widget_async_hook(host: &mut dyn Any) -> bool {
+@@ -1339,3 +1426,339 @@ fn pump_widget_async_hook(host: &mut dyn Any) -> bool {
          .map(pump_widget_async)
          .unwrap_or(false)
  }
@@ -895,7 +914,7 @@ index 08271c416..ad446cc17 100644
 +    }
 +}
 diff --git a/widgets/src/widget_tree.rs b/widgets/src/widget_tree.rs
-index 18234b8bf..99ff851aa 100644
+index 18234b8b..99ff851a 100644
 --- a/widgets/src/widget_tree.rs
 +++ b/widgets/src/widget_tree.rs
 @@ -143,6 +143,12 @@ struct GraphNode {

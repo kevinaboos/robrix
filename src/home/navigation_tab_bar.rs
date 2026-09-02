@@ -670,6 +670,21 @@ pub enum SelectedTab {
     // AlertsInbox,
     Space { space_name_id: RoomNameId },
 }
+impl SelectedTab {
+    /// Updates this tab's space name if it refers to the same space.
+    ///
+    /// Returns `true` if the name was changed.
+    pub fn update_space_name(&mut self, new_space_name: &RoomNameId) -> bool {
+        let SelectedTab::Space { space_name_id } = self else { return false };
+        if space_name_id.room_id() != new_space_name.room_id()
+            || space_name_id.display_name() == new_space_name.display_name()
+        {
+            return false;
+        }
+        *space_name_id = new_space_name.clone();
+        true
+    }
+}
 
 
 /// Actions for navigating through the top-level views of the app,

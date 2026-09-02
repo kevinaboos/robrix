@@ -1,15 +1,15 @@
 # Makepad patches for the a2app branch
 
-`makepad-6cf59e1-splash-fixes.patch` — fixes and diagnostics for the splash
+`makepad-7070e40d-splash-fixes.patch` — fixes and diagnostics for the splash
 isolate host, currently applied ONLY as uncommitted edits inside the cargo
-git checkout (`~/.cargo/git/checkouts/makepad-*/6cf59e1`). A `cargo update`
+git checkout (`~/.cargo/git/checkouts/makepad-*/7070e40`, the `kevinaboos/makepad` `windows_backend_robustness` pin). A `cargo update`
 or fresh checkout silently discards them, so this patch is the durable copy.
 
 To (re)apply locally:
 
 ```sh
-cd ~/.cargo/git/checkouts/makepad-*/6cf59e1
-git apply /path/to/robrix/a2app/patches/makepad-6cf59e1-splash-fixes.patch
+cd ~/.cargo/git/checkouts/makepad-*/7070e40
+git apply --3way /path/to/robrix/a2app/patches/makepad-7070e40d-splash-fixes.patch
 cd /path/to/robrix
 cargo clean -p makepad-widgets -p makepad-script && cargo build --features a2app
 ```

@@ -449,9 +449,10 @@ pub struct FileUploadModal {
 
     /// Whether the shown preview is a text excerpt, which the file info line mentions.
     #[rust] is_text_preview: bool,
-
     /// The preview page being shown, so a reapply can restore it.
     #[rust] preview_page: LiveId,
+    /// Whether the preview was truncated, also so a reapply can restore it.
+    #[rust] preview_truncated: bool,
 }
 
 impl ScriptHook for FileUploadModal {
@@ -597,6 +598,11 @@ impl FileUploadModal {
         self.label(cx, ids!(empty_attachment_warning_label))
             .set_visible(cx, size == 0);
         self.page_flip(cx, ids!(preview_flip)).set_active_page(cx, self.preview_page);
+        let truncated = self.preview_truncated;
+        self.label(cx, ids!(code_truncated_label))
+            .set_visible(cx, truncated && self.preview_page == id!(code_text_page));
+        self.label(cx, ids!(plain_truncated_label))
+            .set_visible(cx, truncated && self.preview_page == id!(plain_text_page));
     }
 
     /// Displays the generated filed preview.
@@ -613,6 +619,7 @@ impl FileUploadModal {
     }
 
     fn show_preview(&mut self, cx: &mut Cx, preview: FilePreview) {
+        self.preview_truncated = false;
         self.preview_page = match preview {
             FilePreview::Loading => id!(loading_page),
             FilePreview::Image(buffer) => {
@@ -623,11 +630,13 @@ impl FileUploadModal {
             FilePreview::Text(tp) if tp.is_code => {
                 self.code_view(cx, ids!(code_preview)).set_text(cx, &tp.content);
                 self.label(cx, ids!(code_truncated_label)).set_visible(cx, tp.truncated);
+                self.preview_truncated = tp.truncated;
                 id!(code_text_page)
             }
             FilePreview::Text(tp) => {
                 self.code_view(cx, ids!(plain_preview)).set_text(cx, &tp.content);
                 self.label(cx, ids!(plain_truncated_label)).set_visible(cx, tp.truncated);
+                self.preview_truncated = tp.truncated;
                 id!(plain_text_page)
             }
             FilePreview::None => id!(no_preview_page),
@@ -640,6 +649,7 @@ impl FileUploadModal {
         self.upload = None;
         self.preview_id = None;
         self.is_text_preview = false;
+        self.preview_truncated = false;
         self.image(cx, ids!(image_preview)).set_texture(cx, None);
         self.code_view(cx, ids!(code_preview)).set_text(cx, "");
         self.code_view(cx, ids!(plain_preview)).set_text(cx, "");
