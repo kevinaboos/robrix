@@ -34,13 +34,35 @@ script_mod! {
         draw_bg +: { color: #0000 }
         draw_handle +: {
             color: (COLOR_SECONDARY_DARKER)
-            // Fully rounded: a lozenge sitting on the border, not a bar
-            // parked beside it.
+            // A soft capsule with grip dots, the way a drag handle reads on
+            // macOS: quiet until you go near it.
             pixel: fn() {
                 let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                let r = min(self.rect_size.x, self.rect_size.y) * 0.5
-                sdf.box(0.5, 0.5, self.rect_size.x - 1.0, self.rect_size.y - 1.0, r)
-                return sdf.fill(self.color)
+                let w = self.rect_size.x
+                let h = self.rect_size.y
+                let dot = vec4(1.0, 1.0, 1.0, 0.9)
+                if h > w {
+                    sdf.box(0.0, 0.0, w, h, w * 0.5)
+                    sdf.fill(self.color)
+                    let gap = w * 0.52
+                    let cy = h * 0.5
+                    sdf.circle(w * 0.5, cy - gap * 2.0, 0.9)
+                    sdf.circle(w * 0.5, cy - gap, 0.9)
+                    sdf.circle(w * 0.5, cy, 0.9)
+                    sdf.circle(w * 0.5, cy + gap, 0.9)
+                    sdf.circle(w * 0.5, cy + gap * 2.0, 0.9)
+                    return sdf.fill(dot)
+                }
+                sdf.box(0.0, 0.0, w, h, h * 0.5)
+                sdf.fill(self.color)
+                let gap = h * 0.52
+                let cx = w * 0.5
+                sdf.circle(cx - gap * 2.0, h * 0.5, 0.9)
+                sdf.circle(cx - gap, h * 0.5, 0.9)
+                sdf.circle(cx, h * 0.5, 0.9)
+                sdf.circle(cx + gap, h * 0.5, 0.9)
+                sdf.circle(cx + gap * 2.0, h * 0.5, 0.9)
+                return sdf.fill(dot)
             }
         }
         draw_grab +: { color: #00000001 }
@@ -134,8 +156,8 @@ script_mod! {
                     padding: 6,
                     spacing: 0
                     align: Align{x: 0.5, y: 0.5}
-                    icon_walk: Walk{width: 10, height: 10, margin: 0}
-                    draw_icon.svg: (ICON_TRIANGLE_DOWN)
+                    icon_walk: Walk{width: 13, height: 13, margin: 0}
+                    draw_icon.svg: (ICON_PANEL_BOTTOM)
                     draw_icon.color: #666
                     draw_bg +: {
                         border_size: 0
@@ -327,13 +349,17 @@ impl Widget for MiniAppDock {
 
         self.reflow_headers(cx);
 
-        self.view.handle_event(cx, event, scope);
+        // Chips and panes FIRST. Makepad resolves overlapping hits by
+        // dispatch order, not draw order: whoever claims the pointer first
+        // wins it. A chip floats over the timeline, so dispatching the
+        // timeline first would let it swallow every click on the chip.
         for inst in self.instances.values() {
             inst.chip.handle_event(cx, event, scope);
             if !inst.minimized {
                 inst.pane.handle_event(cx, event, scope);
             }
         }
+        self.view.handle_event(cx, event, scope);
 
         if let Event::Actions(actions) = event {
             for action in actions {
@@ -608,16 +634,16 @@ impl MiniAppDock {
         let mut button = inst.pane.button(cx, ids!(pane_edge_button));
         match inst.side.next() {
             PaneSide::Top => {
-                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_UP) } });
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (mod.widgets.ICON_PANEL_TOP) } });
             }
             PaneSide::Bottom => {
-                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_DOWN) } });
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (mod.widgets.ICON_PANEL_BOTTOM) } });
             }
             PaneSide::Left => {
-                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_LEFT) } });
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (mod.widgets.ICON_PANEL_LEFT) } });
             }
             PaneSide::Right => {
-                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_RIGHT) } });
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (mod.widgets.ICON_PANEL_RIGHT) } });
             }
         }
     }
@@ -684,8 +710,8 @@ impl MiniAppDockRef {
 
 const EDGE_HANDLE: f64 = 8.0;
 /// The visible grab handle: a small pill centered on the inner border.
-const GRAB_LEN: f64 = 44.0;
-const GRAB_THICK: f64 = 7.0;
+const GRAB_LEN: f64 = 38.0;
+const GRAB_THICK: f64 = 8.0;
 /// Small floor so the drag handle itself stays grabbable.
 const EDGE_MIN_SIZE: f64 = 60.0;
 
@@ -705,15 +731,15 @@ pub struct MiniAppEdge {
 
 /// Grip colors: darker than the pane border it sits on, so it reads as a
 /// handle rather than part of the outline.
-const GRAB_IDLE: Vec4 = Vec4 { x: 0.69, y: 0.69, z: 0.69, w: 1.0 };
+const GRAB_IDLE: Vec4 = Vec4 { x: 0.72, y: 0.72, z: 0.72, w: 1.0 };
 const GRAB_HOVER: Vec4 = Vec4 { x: 0.47, y: 0.47, z: 0.47, w: 1.0 };
 const GRAB_DRAG: Vec4 = Vec4 { x: 0.33, y: 0.33, z: 0.33, w: 1.0 };
 
 /// What the title needs before the header stops giving room to the buttons
 /// and wraps them into a second line instead.
 const HEADER_TITLE_MIN: f64 = 104.0;
-/// `PaneFrame`'s margin: how far its drawn border sits inside the pane rect.
-const PANE_MARGIN: f64 = 2.0;
+/// `PaneFrame`'s border width; the grip centres on the middle of that line.
+const PANE_BORDER: f64 = 1.0;
 /// The grabbable strip, straddling that border.
 const GRAB_STRIP: f64 = 12.0;
 
@@ -841,6 +867,10 @@ impl Widget for MiniAppEdge {
 
         // Panes split the edge evenly along its long axis.
         let n = self.panes.len() as f64;
+        // Where the first pane's frame actually landed: the grip centers on
+        // the border it draws, which is not the rect we hand it (an abs walk
+        // and the border's own width both shift it).
+        let mut frame = pane_rect;
         for (i, (_, pane)) in self.panes.iter().enumerate() {
             let i = i as f64;
             let sub = if self.side.is_vertical() {
@@ -864,6 +894,12 @@ impl Widget for MiniAppEdge {
                 metrics: Default::default(),
             };
             pane.draw_walk_all(cx, &mut Scope::empty(), pane_walk);
+            if i == 0.0 {
+                let drawn = pane.area().rect(cx);
+                if drawn.size.x > 1.0 && drawn.size.y > 1.0 {
+                    frame = drawn;
+                }
+            }
         }
 
         // Both the grip and its hit strip straddle the pane's OWN outer
@@ -871,40 +907,40 @@ impl Widget for MiniAppEdge {
         // floating in the gutter beside it.
         let (grab_rect, hit_rect) = if self.side.is_vertical() {
             let border_x = match self.side {
-                PaneSide::Right => pane_rect.pos.x + PANE_MARGIN,
-                _ => pane_rect.pos.x + pane_rect.size.x - PANE_MARGIN,
+                PaneSide::Right => frame.pos.x + PANE_BORDER * 0.5,
+                _ => frame.pos.x + frame.size.x - PANE_BORDER * 0.5,
             };
-            let len = GRAB_LEN.min(pane_rect.size.y * 0.5);
+            let len = GRAB_LEN.min(frame.size.y * 0.5);
             (
                 Rect {
                     pos: Vec2d {
                         x: border_x - GRAB_THICK * 0.5,
-                        y: pane_rect.pos.y + (pane_rect.size.y - len) * 0.5,
+                        y: frame.pos.y + (frame.size.y - len) * 0.5,
                     },
                     size: Vec2d { x: GRAB_THICK, y: len },
                 },
                 Rect {
-                    pos: Vec2d { x: border_x - GRAB_STRIP * 0.5, y: pane_rect.pos.y },
-                    size: Vec2d { x: GRAB_STRIP, y: pane_rect.size.y },
+                    pos: Vec2d { x: border_x - GRAB_STRIP * 0.5, y: frame.pos.y },
+                    size: Vec2d { x: GRAB_STRIP, y: frame.size.y },
                 },
             )
         } else {
             let border_y = match self.side {
-                PaneSide::Bottom => pane_rect.pos.y + PANE_MARGIN,
-                _ => pane_rect.pos.y + pane_rect.size.y - PANE_MARGIN,
+                PaneSide::Bottom => frame.pos.y + PANE_BORDER * 0.5,
+                _ => frame.pos.y + frame.size.y - PANE_BORDER * 0.5,
             };
-            let len = GRAB_LEN.min(pane_rect.size.x * 0.5);
+            let len = GRAB_LEN.min(frame.size.x * 0.5);
             (
                 Rect {
                     pos: Vec2d {
-                        x: pane_rect.pos.x + (pane_rect.size.x - len) * 0.5,
+                        x: frame.pos.x + (frame.size.x - len) * 0.5,
                         y: border_y - GRAB_THICK * 0.5,
                     },
                     size: Vec2d { x: len, y: GRAB_THICK },
                 },
                 Rect {
-                    pos: Vec2d { x: pane_rect.pos.x, y: border_y - GRAB_STRIP * 0.5 },
-                    size: Vec2d { x: pane_rect.size.x, y: GRAB_STRIP },
+                    pos: Vec2d { x: frame.pos.x, y: border_y - GRAB_STRIP * 0.5 },
+                    size: Vec2d { x: frame.size.x, y: GRAB_STRIP },
                 },
             )
         };
