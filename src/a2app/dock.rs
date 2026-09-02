@@ -32,7 +32,17 @@ script_mod! {
         ..mod.widgets.RoundedView
         width: Fit, height: Fit
         draw_bg +: { color: #0000 }
-        draw_handle +: { color: (COLOR_SECONDARY_DARKER) }
+        draw_handle +: {
+            color: (COLOR_SECONDARY_DARKER)
+            // Fully rounded: a lozenge sitting on the border, not a bar
+            // parked beside it.
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                let r = min(self.rect_size.x, self.rect_size.y) * 0.5
+                sdf.box(0.5, 0.5, self.rect_size.x - 1.0, self.rect_size.y - 1.0, r)
+                return sdf.fill(self.color)
+            }
+        }
         draw_grab +: { color: #00000001 }
     }
 
@@ -113,13 +123,19 @@ script_mod! {
                     }
                 }
 
+                header_buttons := View {
+                    width: Fit, height: Fit
+                    flow: Flow.Right{wrap: true}
+                    spacing: 2
+                    align: Align{x: 1.0}
+
                 pane_edge_button := RobrixIconButton {
                     width: Fit, height: Fit,
                     padding: 6,
                     spacing: 0
                     align: Align{x: 0.5, y: 0.5}
-                    icon_walk: Walk{width: 13, height: 13, margin: 0}
-                    draw_icon.svg: (ICON_PIN)
+                    icon_walk: Walk{width: 10, height: 10, margin: 0}
+                    draw_icon.svg: (ICON_TRIANGLE_DOWN)
                     draw_icon.color: #666
                     draw_bg +: {
                         border_size: 0
@@ -175,6 +191,7 @@ script_mod! {
                         color_hover: #00000015
                         color_down: #00000025
                     }
+                }
                 }
             }
 
@@ -253,6 +270,9 @@ pub enum MiniAppDockAction {
 
 struct Instance {
     pane: WidgetRef,
+    /// Width last given to the header's button box, so a reflow only
+    /// rewrites the walk (and redraws) when it actually changes.
+    header_width: f64,
     side: PaneSide,
     minimized: bool,
     chip: WidgetRef,
@@ -304,6 +324,8 @@ impl Widget for MiniAppDock {
         if self.host_set.has_pending_resize() {
             self.host_set.flush_resize_notifications(cx);
         }
+
+        self.reflow_headers(cx);
 
         self.view.handle_event(cx, event, scope);
         for inst in self.instances.values() {
@@ -479,10 +501,12 @@ impl MiniAppDock {
         self.edge(cx, side).add_pane(&app_id, pane.clone());
         self.instances.insert(app_id.clone(), Instance {
             pane,
+            header_width: 0.0,
             side,
             minimized: false,
             chip,
         });
+        self.apply_edge_icon(cx, &app_id);
         cx.action(MiniAppDockAction::Opened { app_id, room_id });
         self.view.redraw(cx);
     }
@@ -527,6 +551,77 @@ impl MiniAppDock {
         self.view.redraw(cx);
     }
 
+    /// Keeps each pane's header buttons on as few lines as they need: one
+    /// row while the title still has room, otherwise wrapped (four buttons
+    /// become two rows of two) so the title keeps its width.
+    fn reflow_headers(&mut self, cx: &mut Cx) {
+        const BUTTONS: &[&[LiveId]] = &[
+            ids!(pane_edge_button),
+            ids!(pane_tab_button),
+            ids!(pane_minimize_button),
+            ids!(pane_close_button),
+        ];
+        const SPACING: f64 = 2.0;
+        let mut updates: Vec<(MiniAppId, f64)> = Vec::new();
+        for (app_id, inst) in self.instances.iter() {
+            if inst.minimized {
+                continue;
+            }
+            let pane_width = inst.pane.area().rect(cx).size.x;
+            if pane_width <= 0.0 {
+                continue;
+            }
+            let widths: Vec<f64> = BUTTONS
+                .iter()
+                .map(|id| inst.pane.button(cx, id).area().rect(cx).size.x)
+                .collect();
+            // Nothing drawn yet: leave the box alone and try after a draw.
+            if widths.iter().any(|w| *w <= 0.0) {
+                continue;
+            }
+            let row: f64 = widths.iter().sum::<f64>() + SPACING * (widths.len() - 1) as f64;
+            let widest = widths.iter().copied().fold(0.0_f64, f64::max);
+            let pair = widest * 2.0 + SPACING;
+            let target = if pane_width - row >= HEADER_TITLE_MIN { row } else { pair };
+            if (target - inst.header_width).abs() > 0.5 {
+                updates.push((app_id.clone(), target));
+            }
+        }
+        if updates.is_empty() {
+            return;
+        }
+        for (app_id, target) in updates {
+            let Some(inst) = self.instances.get_mut(&app_id) else { continue };
+            inst.header_width = target;
+            let buttons = inst.pane.view(cx, ids!(header_buttons));
+            if let Some(mut buttons) = buttons.borrow_mut() {
+                buttons.walk.width = Size::Fixed(target);
+            }
+        }
+        self.view.redraw(cx);
+    }
+
+    /// Points the edge button at wherever the next click would send the
+    /// pane, so it reads as "move to the bottom" rather than a bare pin.
+    fn apply_edge_icon(&self, cx: &mut Cx, app_id: &str) {
+        let Some(inst) = self.instances.get(app_id) else { return };
+        let mut button = inst.pane.button(cx, ids!(pane_edge_button));
+        match inst.side.next() {
+            PaneSide::Top => {
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_UP) } });
+            }
+            PaneSide::Bottom => {
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_DOWN) } });
+            }
+            PaneSide::Left => {
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_LEFT) } });
+            }
+            PaneSide::Right => {
+                script_apply_eval!(cx, button, { draw_icon +: { svg: (ICON_TRIANGLE_RIGHT) } });
+            }
+        }
+    }
+
     fn set_minimized(&mut self, cx: &mut Cx, app_id: &str, minimized: bool) {
         let Some(inst) = self.instances.get_mut(app_id) else { return };
         if inst.minimized == minimized {
@@ -558,6 +653,7 @@ impl MiniAppDock {
         let pane = inst.pane.clone();
         self.edge(cx, old).remove_pane(app_id);
         self.edge(cx, new).add_pane(app_id, pane);
+        self.apply_edge_icon(cx, app_id);
         self.view.redraw(cx);
     }
 }
@@ -588,8 +684,8 @@ impl MiniAppDockRef {
 
 const EDGE_HANDLE: f64 = 8.0;
 /// The visible grab handle: a small pill centered on the inner border.
-const GRAB_LEN: f64 = 48.0;
-const GRAB_THICK: f64 = 5.0;
+const GRAB_LEN: f64 = 44.0;
+const GRAB_THICK: f64 = 7.0;
 /// Small floor so the drag handle itself stays grabbable.
 const EDGE_MIN_SIZE: f64 = 60.0;
 
@@ -607,10 +703,19 @@ pub struct MiniAppEdge {
     #[rust] handle_area: Area,
 }
 
-/// Grip colors, mirroring a Makepad splitter: barely there until you go for it.
-const GRAB_IDLE: Vec4 = Vec4 { x: 0.78, y: 0.78, z: 0.78, w: 1.0 };
-const GRAB_HOVER: Vec4 = Vec4 { x: 0.55, y: 0.55, z: 0.55, w: 1.0 };
-const GRAB_DRAG: Vec4 = Vec4 { x: 0.40, y: 0.40, z: 0.40, w: 1.0 };
+/// Grip colors: darker than the pane border it sits on, so it reads as a
+/// handle rather than part of the outline.
+const GRAB_IDLE: Vec4 = Vec4 { x: 0.69, y: 0.69, z: 0.69, w: 1.0 };
+const GRAB_HOVER: Vec4 = Vec4 { x: 0.47, y: 0.47, z: 0.47, w: 1.0 };
+const GRAB_DRAG: Vec4 = Vec4 { x: 0.33, y: 0.33, z: 0.33, w: 1.0 };
+
+/// What the title needs before the header stops giving room to the buttons
+/// and wraps them into a second line instead.
+const HEADER_TITLE_MIN: f64 = 104.0;
+/// `PaneFrame`'s margin: how far its drawn border sits inside the pane rect.
+const PANE_MARGIN: f64 = 2.0;
+/// The grabbable strip, straddling that border.
+const GRAB_STRIP: f64 = 12.0;
 
 impl MiniAppEdge {
     fn resize_cursor(&self) -> MouseCursor {
@@ -761,26 +866,47 @@ impl Widget for MiniAppEdge {
             pane.draw_walk_all(cx, &mut Scope::empty(), pane_walk);
         }
 
-        // Just a little grab pill centered on the inner border, not a
-        // full-length splitter bar.
-        let grab_rect = if self.side.is_vertical() {
-            let len = GRAB_LEN.min(handle_rect.size.y * 0.5);
-            Rect {
-                pos: Vec2d {
-                    x: handle_rect.pos.x + (EDGE_HANDLE - GRAB_THICK) * 0.5,
-                    y: handle_rect.pos.y + (handle_rect.size.y - len) * 0.5,
+        // Both the grip and its hit strip straddle the pane's OWN outer
+        // border, so the handle looks attached to the pane's edge instead of
+        // floating in the gutter beside it.
+        let (grab_rect, hit_rect) = if self.side.is_vertical() {
+            let border_x = match self.side {
+                PaneSide::Right => pane_rect.pos.x + PANE_MARGIN,
+                _ => pane_rect.pos.x + pane_rect.size.x - PANE_MARGIN,
+            };
+            let len = GRAB_LEN.min(pane_rect.size.y * 0.5);
+            (
+                Rect {
+                    pos: Vec2d {
+                        x: border_x - GRAB_THICK * 0.5,
+                        y: pane_rect.pos.y + (pane_rect.size.y - len) * 0.5,
+                    },
+                    size: Vec2d { x: GRAB_THICK, y: len },
                 },
-                size: Vec2d { x: GRAB_THICK, y: len },
-            }
+                Rect {
+                    pos: Vec2d { x: border_x - GRAB_STRIP * 0.5, y: pane_rect.pos.y },
+                    size: Vec2d { x: GRAB_STRIP, y: pane_rect.size.y },
+                },
+            )
         } else {
-            let len = GRAB_LEN.min(handle_rect.size.x * 0.5);
-            Rect {
-                pos: Vec2d {
-                    x: handle_rect.pos.x + (handle_rect.size.x - len) * 0.5,
-                    y: handle_rect.pos.y + (EDGE_HANDLE - GRAB_THICK) * 0.5,
+            let border_y = match self.side {
+                PaneSide::Bottom => pane_rect.pos.y + PANE_MARGIN,
+                _ => pane_rect.pos.y + pane_rect.size.y - PANE_MARGIN,
+            };
+            let len = GRAB_LEN.min(pane_rect.size.x * 0.5);
+            (
+                Rect {
+                    pos: Vec2d {
+                        x: pane_rect.pos.x + (pane_rect.size.x - len) * 0.5,
+                        y: border_y - GRAB_THICK * 0.5,
+                    },
+                    size: Vec2d { x: len, y: GRAB_THICK },
                 },
-                size: Vec2d { x: len, y: GRAB_THICK },
-            }
+                Rect {
+                    pos: Vec2d { x: pane_rect.pos.x, y: border_y - GRAB_STRIP * 0.5 },
+                    size: Vec2d { x: pane_rect.size.x, y: GRAB_STRIP },
+                },
+            )
         };
         // A splitter-style grip: subtle at rest, darker under the cursor, so
         // it reads as a divider you can grab rather than a scrollbar.
@@ -789,9 +915,10 @@ impl Widget for MiniAppEdge {
             (_, true) => GRAB_HOVER,
             _ => GRAB_IDLE,
         };
-        self.draw_grab.draw_abs(cx, handle_rect);
+        self.draw_grab.draw_abs(cx, hit_rect);
         self.draw_handle.draw_abs(cx, grab_rect);
         self.handle_area = self.draw_grab.area();
+        let _ = handle_rect;
 
         cx.end_turtle();
         DrawStep::done()
