@@ -525,6 +525,12 @@ pub fn start_backend(
         }
     }
     if let Ok(cmd) = std::env::var("ROBRIX_AGENT_CMD") {
+        // A foreign agent picks its own model; `ROBRIX_AGENT_MODEL` names one
+        // the Claude-based agents understand (they read `ANTHROPIC_MODEL`).
+        let mut env = env;
+        if let Ok(model) = std::env::var("ROBRIX_AGENT_MODEL") {
+            env.push((String::from("ANTHROPIC_MODEL"), model));
+        }
         return Ok(Box::new(AcpClient::spawn(&cmd, workspace, &env, &extra)?));
     }
     #[cfg(feature = "embedded")]

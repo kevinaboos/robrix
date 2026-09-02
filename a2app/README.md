@@ -55,6 +55,7 @@ shared DSL names.
      automatically, no key needed.
 
 Any other ACP agent works via `ROBRIX_AGENT_CMD`, e.g. a Claude Code
+- `ROBRIX_AGENT_MODEL=<model>`: forwarded to a `ROBRIX_AGENT_CMD` agent as `ANTHROPIC_MODEL` (Claude-based agents read it). Use `opus` when testing generation.
 subscription: `ROBRIX_AGENT_CMD="claude-code-acp" cargo run --features a2app`
 (stdio composes, so `ROBRIX_AGENT_CMD="ssh myserver octos acp"` works too).
 
