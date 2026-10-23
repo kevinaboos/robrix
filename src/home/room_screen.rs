@@ -4974,6 +4974,20 @@ fn populate_message_view(
                         (item, false)
                     }
                 }
+                // An A2UI message, shown as its plain-text fallback body.
+                other if other.msgtype() == crate::utils::A2UI_MSGTYPE => {
+                    has_html_body = false;
+                    let template = if use_compact_view { id!(CondensedMessage) } else { id!(Message) };
+                    let (item, existed) = list.item_with_existed(cx, item_id, template);
+                    if existed && item_drawn_status.content_drawn {
+                        (item, true)
+                    } else {
+                        item.link_preview(cx, ids!(content.link_preview_view)).clear(cx);
+                        item.html_or_plaintext(cx, ids!(content.message)).show_plaintext(cx, other.body());
+                        new_drawn_status.content_drawn = true;
+                        (item, false)
+                    }
+                }
                 _ => {
                     has_html_body = false;
                     use_compact_view = false;

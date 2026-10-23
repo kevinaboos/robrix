@@ -305,6 +305,10 @@ fn text_preview_of_message(
                 htmlize::escape_text(&video.body)
             }
         ),
+        MessageType::_Custom(_) if msg.msgtype() == crate::utils::A2UI_MSGTYPE => format!(
+            "[Interactive]: {}",
+            htmlize::escape_text(msg.body()),
+        ),
         MessageType::_Custom(custom) => format!(
             "[Custom message]: {:?}",
             custom,

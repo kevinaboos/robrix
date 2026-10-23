@@ -17,6 +17,14 @@ use crate::{
 /// The scheme for GEO links, used for location messages in Matrix.
 pub const GEO_URI_SCHEME: &str = "geo:";
 
+/// The `m.room.message` msgtype whose `messages` field holds A2UI v0.9
+/// server-to-client messages; `body` is the fallback for other clients.
+pub const A2UI_MSGTYPE: &str = "io.element.a2ui";
+/// Later changes to an A2UI surface, related to its message by `m.reference`.
+pub const A2UI_UPDATE_EVENT_TYPE: &str = "io.element.a2ui.update";
+/// A user's button press on an A2UI surface, related to its message by `m.reference`.
+pub const A2UI_ACTION_EVENT_TYPE: &str = "io.element.a2ui.action";
+
 /// Opens the given URL or shows an error popup.
 pub fn open_url(url: &str) {
     log!("Opening URL \"{}\"", url);
