@@ -130,6 +130,12 @@ pub static SLASH_COMMANDS: &[SlashCommand] = &[
         description: "Leave this room",
         usage: "/leave",
     },
+    SlashCommand {
+        name: "sendraw",
+        aliases: &["devsend"],
+        description: "Send a custom event; while replying, it references the replied-to message",
+        usage: "/sendraw <event-type> <json-content>",
+    },
 
     // TODO: add more of the commands below, most of which need backend matrix requests:
     //
@@ -185,6 +191,11 @@ pub enum SlashCommandAction {
     },
     /// Set the current user's display name across all rooms.
     SetDisplayName(String),
+    /// Send an event of any type with this JSON object as its content.
+    SendRawEvent {
+        event_type: String,
+        content: serde_json::Value,
+    },
 }
 
 /// Returns an iterator over all slash commands matching the given query.
@@ -243,6 +254,16 @@ pub fn parse_input(text: &str) -> SlashCommandOutcome {
             "block" => SlashCommandAction::BlockUser { user_id, block: true },
             _ => SlashCommandAction::BlockUser { user_id, block: false },
         });
+    }
+
+    if command.name == "sendraw" {
+        let (event_type, json) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
+        return match serde_json::from_str::<serde_json::Value>(json.trim()) {
+            Ok(content @ serde_json::Value::Object(_)) => SlashCommandOutcome::Action(
+                SlashCommandAction::SendRawEvent { event_type: event_type.to_owned(), content },
+            ),
+            _ => SlashCommandOutcome::Error(format!("Usage: {} (the content must be a JSON object)", command.usage)),
+        };
     }
 
     let content = match command.name {
@@ -825,5 +846,16 @@ mod tests_slash_commands {
             action("/nick  Bob the Builder  "),
             SlashCommandAction::SetDisplayName(name) if name == "Bob the Builder",
         ));
+    }
+
+    #[test]
+    fn sendraw_takes_a_type_and_a_json_object() {
+        assert!(matches!(
+            action("/sendraw io.element.a2ui.update {\"messages\": []}"),
+            SlashCommandAction::SendRawEvent { event_type, content }
+                if event_type == "io.element.a2ui.update" && content == serde_json::json!({"messages": []}),
+        ));
+        assert!(matches!(parse_input("/sendraw m.room.message [1]"), SlashCommandOutcome::Error(_)));
+        assert!(matches!(parse_input("/sendraw m.room.message"), SlashCommandOutcome::Error(_)));
     }
 }

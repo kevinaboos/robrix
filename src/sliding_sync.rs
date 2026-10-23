@@ -766,6 +766,12 @@ pub enum MatrixRequest {
         #[cfg(feature = "tsp")]
         sign_with_tsp: bool,
     },
+    /// Sends a message-like event of any type, e.g. for the `/sendraw` command.
+    SendRawEvent {
+        room_id: OwnedRoomId,
+        event_type: String,
+        content: serde_json::Value,
+    },
     /// Request to send a file attachment to the given room.
     SendAttachment {
         upload_id: FileUploadAttemptId,
@@ -2262,6 +2268,24 @@ async fn matrix_worker_task(
                     // Upon the next sync, the blocked user list will be updated, which will cause
                     // the matrix SDK to clear each timeline, at which point the visible timelines
                     // will re-paginate themselves.
+                });
+            }
+
+            MatrixRequest::SendRawEvent { room_id, event_type, content } => {
+                let Some(main_room_timeline) = get_room_timeline(&room_id) else {
+                    log!("BUG: skipping send raw event request for not-yet-known room {room_id}");
+                    continue;
+                };
+                let _send_task = Handle::current().spawn(async move {
+                    let result = match serde_json::value::to_raw_value(&content) {
+                        Ok(raw) => main_room_timeline.room().send_raw(&event_type, raw).await
+                            .map(|_| ()).map_err(|e| e.to_string()),
+                        Err(e) => Err(e.to_string()),
+                    };
+                    if let Err(e) = result {
+                        error!("Failed to send {event_type} event to room {room_id}: {e}");
+                        enqueue_popup_notification(format!("Failed to send the {event_type} event: {e}"), PopupKind::Error, Some(5.0));
+                    }
                 });
             }
 
