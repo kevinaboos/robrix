@@ -611,6 +611,10 @@ pub struct RoomsList {
 impl ScriptHook for RoomsList {
     fn on_after_new(&mut self, _vm: &mut ScriptVm) {
         self.invited_rooms = ALL_INVITED_ROOMS.with(Rc::clone);
+        // Updates queued before this list existed missed their signal, so we raise another one.
+        if !PENDING_ROOM_UPDATES.is_empty() {
+            SignalToUI::set_ui_signal();
+        }
     }
 }
 
