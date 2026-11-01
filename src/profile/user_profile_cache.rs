@@ -25,6 +25,9 @@ enum UserProfileCacheEntry {
         user_profile: UserProfile,
         rooms: BTreeMap<OwnedRoomId, RoomMemberEntry>,
     },
+    /// The request completed but couldn't get the user's profile, e.g., due to a network error.
+    /// Lookups won't fetch it again until the next transition from offline --> online.
+    Failed,
 }
 
 /// An entry in a loaded profile's map of per-room member info.
@@ -88,7 +91,7 @@ fn insert_loaded_member(
         UserProfileCacheEntry::Loaded { rooms, .. } => {
             rooms.insert(room_id, RoomMemberEntry::Loaded(room_member));
         }
-        UserProfileCacheEntry::Requested => {
+        UserProfileCacheEntry::Requested | UserProfileCacheEntry::Failed => {
             *entry = UserProfileCacheEntry::Loaded {
                 user_profile: new_profile(&room_member),
                 rooms: BTreeMap::from([(room_id, RoomMemberEntry::Loaded(room_member))]),
@@ -97,15 +100,14 @@ fn insert_loaded_member(
     }
 }
 
-/// Removes all `Requested` entries from the cache, allowing them to be re-fetched.
+/// Removes all `Requested` and `Failed` entries from the cache, allowing them to be re-fetched.
 ///
 /// This should be called when the app transitions from offline back to online,
 /// because any in-flight requests that were submitted while offline have likely
-/// failed without updating the cache, leaving stale `Requested` entries that
-/// permanently block re-fetching.
+/// failed, leaving stale entries that permanently block re-fetching.
 pub fn clear_all_pending_requests() {
     USER_PROFILE_CACHE.with_borrow_mut(|cache| {
-        cache.retain(|_, entry| !matches!(entry, UserProfileCacheEntry::Requested));
+        cache.retain(|_, entry| matches!(entry, UserProfileCacheEntry::Loaded { .. }));
         for entry in cache.values_mut() {
             if let UserProfileCacheEntry::Loaded { rooms, .. } = entry {
                 rooms.retain(|_, member| matches!(member, RoomMemberEntry::Loaded(_)));
@@ -144,6 +146,10 @@ pub enum UserProfileUpdate {
         user_id: OwnedUserId,
         room_id: OwnedRoomId,
     },
+    /// A user profile request couldn't get the user's profile at all.
+    UserProfileFailed {
+        user_id: OwnedUserId,
+    },
 }
 impl UserProfileUpdate {
     /// Returns the user ID associated with this update.
@@ -153,6 +159,7 @@ impl UserProfileUpdate {
             UserProfileUpdate::RoomMemberOnly { room_member, .. } => room_member.user_id(),
             UserProfileUpdate::UserProfileOnly(profile) => &profile.user_id,
             UserProfileUpdate::RoomMemberFailed { user_id, .. } => user_id,
+            UserProfileUpdate::UserProfileFailed { user_id } => user_id,
         }
     }
 
@@ -162,7 +169,7 @@ impl UserProfileUpdate {
             UserProfileUpdate::Full { new_profile, room_id, room_member } => {
                 match cache.entry(new_profile.user_id.clone()) {
                     Entry::Occupied(mut entry) => match entry.get_mut() {
-                        e @ UserProfileCacheEntry::Requested => {
+                        e @ (UserProfileCacheEntry::Requested | UserProfileCacheEntry::Failed) => {
                             *e = UserProfileCacheEntry::Loaded {
                                 user_profile: new_profile,
                                 rooms: {
@@ -199,7 +206,7 @@ impl UserProfileUpdate {
             UserProfileUpdate::UserProfileOnly(new_profile) => {
                 match cache.entry(new_profile.user_id.clone()) {
                     Entry::Occupied(mut entry) => match entry.get_mut() {
-                        e @ UserProfileCacheEntry::Requested => {
+                        e @ (UserProfileCacheEntry::Requested | UserProfileCacheEntry::Failed) => {
                             *e = UserProfileCacheEntry::Loaded {
                                 user_profile: new_profile,
                                 rooms: BTreeMap::new(),
@@ -224,6 +231,12 @@ impl UserProfileUpdate {
                     if matches!(member, RoomMemberEntry::Requested) {
                         *member = RoomMemberEntry::Failed;
                     }
+                }
+            }
+            UserProfileUpdate::UserProfileFailed { user_id } => {
+                // Don't overwrite a profile that we already have.
+                if let Some(entry @ UserProfileCacheEntry::Requested) = cache.get_mut(&user_id) {
+                    *entry = UserProfileCacheEntry::Failed;
                 }
             }
         }
@@ -299,6 +312,7 @@ where
                         // log!("User {} profile request is already in flight....", entry.key());
                         None
                     }
+                    UserProfileCacheEntry::Failed => None,
                 }
             }
             Entry::Vacant(entry) => {
@@ -419,7 +433,7 @@ mod tests_room_member_entry {
     fn room_entry(cache: &BTreeMap<OwnedUserId, UserProfileCacheEntry>) -> Option<&RoomMemberEntry> {
         match cache.get(user_id!("@alice:matrix.org"))? {
             UserProfileCacheEntry::Loaded { rooms, .. } => rooms.get(room_id!("!room:matrix.org")),
-            UserProfileCacheEntry::Requested => None,
+            UserProfileCacheEntry::Requested | UserProfileCacheEntry::Failed => None,
         }
     }
 

@@ -217,11 +217,9 @@ impl SettingsScreen {
         if self.cancel_scope.is_none() {
             self.cancel_scope = Some(self.begin_cancel_scope(cx));
         }
-        let Some(profile) = own_profile.or_else(|| get_own_profile(cx)) else {
-            error!("Failed to get own profile for settings screen.");
-            return;
-        };
-        self.populate_subwidgets(cx, PopulateMode::Initial, Some(profile), app_state);
+        // If our own profile isn't available yet, the account settings fill it in once it arrives.
+        let own_profile = own_profile.or_else(|| get_own_profile(cx));
+        self.populate_subwidgets(cx, PopulateMode::Initial, own_profile, app_state);
         self.view.button(cx, ids!(close_button)).reset_hover(cx);
         cx.set_key_focus(self.view.area());
         self.redraw(cx);
