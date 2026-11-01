@@ -1654,18 +1654,29 @@ async fn matrix_worker_task(
 
                     if !local_only {
                         if update.is_none() {
-                            if let Ok(response) = client.account().fetch_user_profile_of(&user_id).await {
-                                update = Some(UserProfileUpdate::UserProfileOnly(
-                                    UserProfile {
-                                        username: response.get_static::<DisplayName>().ok().flatten(),
-                                        user_id: user_id.clone(),
-                                        avatar_state: response.get_static::<AvatarUrl>()
-                                            .ok()
-                                            .map_or(AvatarState::Unknown, AvatarState::Known),
-                                    }
-                                ));
-                            } else {
-                                log!("User profile request: client could not get user with ID {user_id}");
+                            match client.account().fetch_user_profile_of(&user_id).await {
+                                Ok(response) => {
+                                    update = Some(UserProfileUpdate::UserProfileOnly(
+                                        UserProfile {
+                                            username: response.get_static::<DisplayName>().ok().flatten(),
+                                            user_id: user_id.clone(),
+                                            avatar_state: response.get_static::<AvatarUrl>()
+                                                .ok()
+                                                .map_or(AvatarState::Unknown, AvatarState::Known),
+                                        }
+                                    ));
+                                }
+                                // Servers answer 404 for a user with no name or avatar (or no such user), so that's just an empty profile.
+                                Err(e) if matches!(e.client_api_error_kind(), Some(ErrorKind::NotFound)) => {
+                                    update = Some(UserProfileUpdate::UserProfileOnly(
+                                        UserProfile {
+                                            username: None,
+                                            user_id: user_id.clone(),
+                                            avatar_state: AvatarState::Known(None),
+                                        }
+                                    ));
+                                }
+                                Err(e) => log!("User profile request: failed to fetch the profile of user {user_id}: {e}"),
                             }
                         }
 
@@ -1690,6 +1701,9 @@ async fn matrix_worker_task(
                         enqueue_user_profile_update(upd);
                     } else {
                         log!("Failed to get user profile: user: {user_id}, room: {room_id:?}, local_only: {local_only}.");
+                        if !local_only {
+                            enqueue_user_profile_update(UserProfileUpdate::UserProfileFailed { user_id: user_id.clone() });
+                        }
                     }
 
                     if let Some(room_id) = missing_member_room_id {
@@ -5466,6 +5480,14 @@ fn handle_room_list_service_state_subscriber(mut subscriber: Subscriber<room_lis
                 is_fully_synced = is_now_fully_synced;
                 log!("Received a room list service state update: {state:?}");
                 post_sync_status(is_fully_synced);
+                // Our own profile is only fetched once, so we fetch it again in case that failed while we weren't synced.
+                if is_fully_synced && let Some(user_id) = current_user_id() {
+                    submit_async_request(MatrixRequest::GetUserProfile {
+                        user_id,
+                        room_id: None,
+                        local_only: false,
+                    });
+                }
             }
         }
     })
