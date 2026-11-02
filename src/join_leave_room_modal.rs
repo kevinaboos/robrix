@@ -490,7 +490,7 @@ impl JoinLeaveRoomModal {
 
         self.view.label(cx, ids!(title)).set_text(cx, title);
         self.view.label(cx, ids!(body)).set_text(cx, &description);
-        if show_tip {
+        if show_tip && !cfg!(any(target_os = "ios", target_os = "android")) {
             self.view.view(cx, ids!(tip_view)).set_visible(cx, true);
             self.view.label(cx, ids!(tip)).set_text(cx, &format!(
                 "Tip: hold Shift when clicking the \"{tip_button}\" button to bypass this prompt.",

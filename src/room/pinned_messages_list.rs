@@ -339,7 +339,7 @@ impl PinnedMessagesList {
 ///
 /// If `show_shift_tip` is `true`, this also says that holding Shift skips this prompt.
 pub fn confirm_unpin_message(cx: &mut Cx, room_id: OwnedRoomId, event_id: OwnedEventId, show_shift_tip: bool) {
-    let body_text = if show_shift_tip {
+    let body_text = if show_shift_tip && !cfg!(any(target_os = "ios", target_os = "android")) {
         "Are you sure you want to unpin this message?\n\n\
         Tip: hold Shift when clicking the unpin button to bypass this prompt."
     } else {
