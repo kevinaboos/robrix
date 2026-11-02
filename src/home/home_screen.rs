@@ -132,7 +132,7 @@ script_mod! {
             pixel: fn() {
                 let sdf = Sdf2d.viewport(self.pos * self.rect_size3)
                 // The box reaches one anti-aliasing ramp below the bar, so its bottom row stays solid
-                // where it meets the nav bar, and the rooms beneath can't show through that seam.
+                // where it meets the nav bar, and the content beneath can't show through that seam.
                 sdf.box(
                     self.sdf_rect_pos.x
                     self.sdf_rect_pos.y
@@ -288,7 +288,7 @@ script_mod! {
                         flow: Down
                         width: Fill, height: Fill
 
-                        // Scrolling down the rooms list slides its header and the bottom bars out of view.
+                        // Scrolling down a page slides the bottom bars (and the rooms list's header) out of view.
                         mod.widgets.HideOnScrollView {
                             content +: {
                                 // At the top of the root view, we use the PageFlip widget to show either
@@ -455,7 +455,7 @@ impl Widget for SpacesBarWrapper {
         }
         self.was_drawn = true;
         // While it replays its show animation, it grows within the room it already took up,
-        // so the rooms list beneath it doesn't jump.
+        // so the content beneath it doesn't jump.
         let mut walk = walk;
         if self.animator_in_state(cx, ids!(spaces_bar_animator.show))
             && let Size::Fixed(height) = walk.height

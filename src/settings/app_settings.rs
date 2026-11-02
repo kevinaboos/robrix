@@ -410,7 +410,7 @@ script_mod! {
 
         SubsectionLabel {
             margin: Inset{top: 10}
-            text: "Scrolling the Rooms List"
+            text: "Auto-Hide Bars While Scrolling"
         }
 
         View {
@@ -424,7 +424,7 @@ script_mod! {
             }
             hide_bottom_bars_on_scroll_toggle := mod.widgets.RobrixSettingsToggle {
                 active: false,
-                text: "Hide bottom bar while scrolling"
+                text: "Fully hide bottom bar while scrolling"
             }
         }
 

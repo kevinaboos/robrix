@@ -1,10 +1,7 @@
 
 use makepad_widgets::*;
 
-use crate::{app::AppState, home::navigation_tab_bar::{NavigationBarAction, get_own_profile}, profile::user_profile::UserProfile, settings::{PopulateMode, is_settings_screen_shown, account_settings::AccountSettingsWidgetExt, app_settings::AppSettingsWidgetExt, encryption_settings::EncryptionSettingsWidgetExt, privacy_settings::PrivacySettingsWidgetExt, room_directory_settings::RoomDirectorySettingsWidgetExt}, utils};
-
-/// The space between the settings content and the screen's left and right edges.
-const SIDE_PADDING: f64 = 15.0;
+use crate::{app::AppState, home::navigation_tab_bar::{NavigationBarAction, get_own_profile}, profile::user_profile::UserProfile, settings::{PopulateMode, is_settings_screen_shown, account_settings::AccountSettingsWidgetExt, app_settings::AppSettingsWidgetExt, encryption_settings::EncryptionSettingsWidgetExt, privacy_settings::PrivacySettingsWidgetExt, room_directory_settings::RoomDirectorySettingsWidgetExt}, shared::page_header::PAGE_SIDE_PADDING, utils};
 
 script_mod! {
     use mod.prelude.widgets.*
@@ -16,44 +13,20 @@ script_mod! {
         flow: Overlay
 
         View {
-            padding: Inset{top: 5, left: #(SIDE_PADDING), right: 0, bottom: 0},
             flow: Down
 
-            // The settings header shows a title, with a close button to the right.
-            settings_header := View {
-                flow: Right,
-                width: Fill, height: Fit
-                margin: Inset{top: 5, left: 5, right: #(5.0 + SIDE_PADDING)}
-                spacing: 10,
-
-                settings_header_title := TitleLabel {
-                    padding: 0,
-                    margin: Inset{ left: 1, top: 11 },
-                    text: "All Settings"
-                    draw_text +: {
-                        text_style: theme.font_regular {font_size: 18},
-                    }
-                }
-
-                // The "X" close button on the top right
-                close_button := RobrixNeutralIconButton {
-                    width: Fit,
-                    height: Fit,
-                    spacing: 0,
-                    margin: 0,
-                    padding: 15,
-                    draw_icon.svg: (ICON_CLOSE)
-                    icon_walk: Walk{width: 14, height: 14}
-                }
+            page_header := PageHeader {
+                title_row +: { title +: { text: "All Settings" } }
             }
 
-            // Make sure the dividing line is aligned with the close_button
-            LineH { padding: 10, margin: Inset{top: 10, right: #(2.0 + SIDE_PADDING)} }
-
-            ScrollYView {
+            scroll_view := ScrollYView {
                 width: Fill, height: Fill
                 flow: Down
-                padding: Inset{right: #(SIDE_PADDING)}
+                padding: Inset{left: #(PAGE_SIDE_PADDING), right: #(PAGE_SIDE_PADDING)}
+
+                // The mobile root view makes this as tall as how far the header has slid up,
+                // so the settings stay put while the header slides out of view.
+                header_space := View { width: Fill, height: 0 }
 
                 // The account settings section.
                 account_settings := AccountSettings {}
@@ -88,6 +61,9 @@ script_mod! {
                     width: Fill
                     height: 20
                 }
+
+                // The mobile root view makes this as tall as its bottom bars, so the settings can scroll out from under them.
+                bottom_bars_space := View { width: Fill, height: 0 }
             }
         }
 
@@ -145,7 +121,7 @@ impl Widget for SettingsScreen {
         let close_pane = is_shown && {
             matches!(
                 event,
-                Event::Actions(actions) if self.button(cx, ids!(close_button)).clicked(actions)
+                Event::Actions(actions) if self.button(cx, ids!(page_header.close_button)).clicked(actions)
             )
             || (self.cancel_scope.as_ref().is_some_and(|s| cx.owns_cancel(s))
                 && (event.back_pressed()
@@ -220,7 +196,7 @@ impl SettingsScreen {
         // If our own profile isn't available yet, the account settings fill it in once it arrives.
         let own_profile = own_profile.or_else(|| get_own_profile(cx));
         self.populate_subwidgets(cx, PopulateMode::Initial, own_profile, app_state);
-        self.view.button(cx, ids!(close_button)).reset_hover(cx);
+        self.view.button(cx, ids!(page_header.close_button)).reset_hover(cx);
         cx.set_key_focus(self.view.area());
         self.redraw(cx);
     }
