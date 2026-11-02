@@ -41,7 +41,7 @@ use crate::{
         user_profile::UserProfile,
         user_profile_cache::{self, UserProfileUpdate},
     },
-    home::{home_screen::effective_is_desktop, spaces_bar::SpacesBarWidgetExt},
+    home::{home_screen::effective_is_desktop, nav_bar_pill::{NavBarPill, PillState, ShowSpacesBarFromPillAction}, rooms_list::RoomsListRef, spaces_bar::SpacesBarWidgetExt},
     settings::app_preferences::{AppPreferencesAction, ViewModeOverride},
     shared::{
         avatar::{AvatarState, TextAvatarBgColor, AvatarWidgetExt},
@@ -87,16 +87,21 @@ script_mod! {
             flow: Overlay
             align: Align { x: 0.5, y: 0.5 }
 
-            our_own_avatar := Avatar {
+            // The avatar's size is on this box rather than on the avatar itself,
+            // so that the mobile nav bar can shrink it into its floating pill.
+            avatar_box := View {
                 width: (mod.widgets.NAVIGATION_TAB_BAR_AVATAR_SIZE)
                 height: (mod.widgets.NAVIGATION_TAB_BAR_AVATAR_SIZE)
-                // If no avatar picture, use white text on a dark background.
-                text_view +: {
-                    draw_bg.color: (COLOR_FG_DISABLED),
-                    text +: {
-                        draw_text +: {
-                            text_style: theme.font_regular { font_size: mod.widgets.NAVIGATION_TAB_BAR_AVATAR_FONT_SIZE },
-                            color: (COLOR_TEXT_ON_ACCENT),
+                our_own_avatar := Avatar {
+                    width: Fill, height: Fill
+                    // If no avatar picture, use white text on a dark background.
+                    text_view +: {
+                        draw_bg.color: (COLOR_FG_DISABLED),
+                        text +: {
+                            draw_text +: {
+                                text_style: theme.font_regular { font_size: mod.widgets.NAVIGATION_TAB_BAR_AVATAR_FONT_SIZE },
+                                color: (COLOR_TEXT_ON_ACCENT),
+                            }
                         }
                     }
                 }
@@ -108,7 +113,7 @@ script_mod! {
             // avatar's outer top-right corner, half-overlapping the avatar.
             // The right/top margin nudges the badge a few pixels south-west
             // so it sits visually centered on the avatar's corner.
-            View {
+            badge_box := View {
                 width: Fill,
                 height: Fill,
                 align: Align { x: 1.0, y: 0.0 }
@@ -118,35 +123,38 @@ script_mod! {
         }
     }
 
-    mod.widgets.HomeButton = mod.widgets.NavigationTabButton {
-        tooltip_text: "All Rooms"
-        Icon {
+    // A nav bar button's icon. Its size is on this box rather than on the icon itself,
+    // so that the mobile nav bar can shrink it into its floating pill.
+    mod.widgets.NavigationTabIcon = View {
+        width: 30, height: 30
+        // Like an Icon, this doesn't clip, which would cut off the icon's anti-aliased edges.
+        clip_x: false, clip_y: false
+        icon := Icon {
+            width: Fill, height: Fill
             margin: 0,
             icon_walk: Walk {
                 margin: 0,
-                width: 30,
-                height: 30
+                width: Fill,
+                height: Fill
             }
             draw_icon +: {
                 color: (COLOR_NAVIGATION_TAB_FG)
-                svg: (ICON_HOME)
             }
+        }
+    }
+
+    mod.widgets.HomeButton = mod.widgets.NavigationTabButton {
+        tooltip_text: "All Rooms"
+        icon_box := mod.widgets.NavigationTabIcon {
+            icon +: { draw_icon +: { svg: (ICON_HOME) } }
         }
     }
 
     mod.widgets.AddRoomButton = mod.widgets.NavigationTabButton {
         tooltip_text: "Add/Join Room"
-        Icon {
-            margin: 0,
-            icon_walk: Walk {
-                margin: 0,
-                width: 27,
-                height: 27
-            }
-            draw_icon +: {
-                color: (COLOR_NAVIGATION_TAB_FG)
-                svg: (ICON_ADD)
-            }
+        icon_box := mod.widgets.NavigationTabIcon {
+            width: 27, height: 27
+            icon +: { draw_icon +: { svg: (ICON_ADD) } }
         }
     }
 
@@ -155,17 +163,8 @@ script_mod! {
     // so the parent never calls `set_selected` on it.
     mod.widgets.ToggleSpacesBarButton = mod.widgets.NavigationTabButton {
         tooltip_text: "Toggle Spaces"
-        Icon {
-            margin: 0,
-            icon_walk: Walk {
-                margin: 0,
-                width: 30,
-                height: 30
-            }
-            draw_icon +: {
-                color: (COLOR_NAVIGATION_TAB_FG)
-                svg: (ICON_SQUARES)
-            }
+        icon_box := mod.widgets.NavigationTabIcon {
+            icon +: { draw_icon +: { svg: (ICON_SQUARES) } }
         }
     }
 
@@ -206,37 +205,40 @@ script_mod! {
             }
         }
 
-        Mobile := RoundedView {
+        Mobile := View {
             new_batch: true,
-            flow: Right
-            align: Align{x: 0.5, y: 0.5}
             width: Fill,
             // On mobile, the nav bar is at the bottom, so we let it fill the entire space
             // *including* drawing within the safe inset areas,
             // and the bottom-pad its content so the buttons aren't drawn in the safe areas.
             height: (mod.widgets.NAVIGATION_TAB_BAR_SIZE + mod.widgets.SAFE_INSET_PAD_BOTTOM),
-            padding: Inset{
-                bottom: (mod.widgets.SAFE_INSET_PAD_BOTTOM),
-                left: (mod.widgets.SAFE_INSET_PAD_LEFT),
-                right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
-            }
+            align: Align{x: 0.5, y: 1.0}
+            // This doesn't clip, so the pill's shadow still shows.
+            clip_x: false, clip_y: false
 
-            draw_bg +: {
-                color: (COLOR_SECONDARY)
-                border_radius: 4.0
-            }
+            // The bar itself, which can shrink into a floating pill inside this view's unchanging space.
+            pill := mod.widgets.NavigationBarPill {
+                width: Fill, height: Fill
+                flow: Right
+                align: Align{x: 0.5, y: 0.5}
+                padding: Inset{
+                    bottom: (mod.widgets.SAFE_INSET_PAD_BOTTOM),
+                    left: (mod.widgets.SAFE_INSET_PAD_LEFT),
+                    right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
+                }
 
-            CachedWidget {
-                home_button := mod.widgets.HomeButton {}
-            }
-            CachedWidget {
-                add_room_button := mod.widgets.AddRoomButton {}
-            }
+                CachedWidget {
+                    home_button := mod.widgets.HomeButton {}
+                }
+                CachedWidget {
+                    add_room_button := mod.widgets.AddRoomButton {}
+                }
 
-            toggle_spaces_bar_button := mod.widgets.ToggleSpacesBarButton {}
+                toggle_spaces_bar_button := mod.widgets.ToggleSpacesBarButton {}
 
-            CachedWidget {
-                profile_icon := mod.widgets.ProfileIcon {}
+                CachedWidget {
+                    profile_icon := mod.widgets.ProfileIcon {}
+                }
             }
         }
     }
@@ -256,7 +258,7 @@ script_mod! {
 /// using `NavigationBarButton`'s built-in `tooltip_text`.
 #[derive(Script, Widget)]
 pub struct ProfileIcon {
-    #[deref] inner: NavigationBarButton,
+    #[deref] pub inner: NavigationBarButton,
     #[rust] own_profile: Option<UserProfile>,
     #[rust] has_prepared_settings: bool,
 }
@@ -458,13 +460,14 @@ impl ProfileIconRef {
 pub struct NavigationTabBar {
     #[deref] view: AdaptiveView,
 
-    #[rust] is_spaces_bar_shown: bool,
-
     /// The most recently applied view-mode override,
     #[rust] applied_view_mode: ViewModeOverride,
 
     /// The tab currently visually marked as selected.
     #[rust] selected_tab: SelectedTab,
+
+    /// The floating pill that the mobile bar shrinks into while scrolling the rooms list.
+    #[rust] pill: NavBarPill,
 }
 
 impl ScriptHook for NavigationTabBar {
@@ -476,6 +479,7 @@ impl ScriptHook for NavigationTabBar {
     }
 
     fn on_after_reload(&mut self, vm: &mut ScriptVm) {
+        self.pill.drop_widgets();
         vm.with_cx_mut(|cx| {
             self.apply_selected_tab(cx, None);
         });
@@ -536,6 +540,10 @@ impl Widget for NavigationTabBar {
             // Each click both updates the visual selection and emits the
             // corresponding `NavigationBarAction` for downstream handling.
             if self.view.navigation_bar_button(cx, ids!(home_button)).clicked(actions) {
+                // Tapping Home while it's already selected scrolls the rooms list back up to its top.
+                if self.selected_tab == SelectedTab::Home && cx.has_global::<RoomsListRef>() {
+                    cx.get_global::<RoomsListRef>().clone().scroll_to_top(cx);
+                }
                 self.apply_selected_tab(cx, Some(SelectedTab::Home));
                 cx.action(NavigationBarAction::GoToHome);
             }
@@ -557,8 +565,11 @@ impl Widget for NavigationTabBar {
             }
 
             if self.view.navigation_bar_button(cx, ids!(toggle_spaces_bar_button)).clicked(actions) {
-                self.is_spaces_bar_shown = !self.is_spaces_bar_shown;
-                cx.action(NavigationBarAction::ToggleSpacesBar);
+                if self.pill.state.is_shrunk {
+                    cx.action(ShowSpacesBarFromPillAction);
+                } else {
+                    cx.action(NavigationBarAction::ToggleSpacesBar);
+                }
             }
 
             for action in actions {
@@ -588,7 +599,20 @@ impl Widget for NavigationTabBar {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
-        self.view.draw_walk(cx, scope, walk)
+        self.pill.draw_nav_bar(cx, &mut self.view, scope, walk)
+    }
+}
+
+impl NavigationTabBarRef {
+    pub fn set_pill_state(&self, state: PillState) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.pill.state = state;
+        }
+    }
+
+    /// The area of the mobile bar's pill, which is empty until the mobile bar has been drawn.
+    pub fn pill_area(&self) -> Area {
+        self.borrow().map_or(Area::Empty, |inner| inner.pill.area())
     }
 }
 

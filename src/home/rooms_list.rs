@@ -26,7 +26,7 @@ use matrix_sdk::{RoomState, ruma::{events::tag::Tags, room::JoinRuleSummary, Mil
 use crate::{
     app::{AppState, AppStateAction, SelectedRoom},
     home::{
-        invite_screen::{InviteScreenAction, JoinRoomResultAction, LeaveRoomResultAction}, navigation_tab_bar::{NavigationBarAction, SelectedTab}, room_context_menu::RoomContextMenuDetails, room_screen::{invalidate_entire_room_timeline_states, input_bar_focus}, rooms_list_entry::RoomsListEntryAction, space_lobby::{SpaceLobbyAction, SpaceLobbyEntryWidgetExt}, spaces_bar::{SpacesListUpdate, enqueue_spaces_list_update}
+        home_screen::effective_is_desktop, invite_screen::{InviteScreenAction, JoinRoomResultAction, LeaveRoomResultAction}, navigation_tab_bar::{NavigationBarAction, SelectedTab}, room_context_menu::RoomContextMenuDetails, room_screen::{invalidate_entire_room_timeline_states, input_bar_focus}, rooms_list_entry::RoomsListEntryAction, space_lobby::{SpaceLobbyAction, SpaceLobbyEntryWidgetExt}, spaces_bar::{SpacesListUpdate, enqueue_spaces_list_update}
     },
     logout::logout_confirm_modal::LogoutAction,
     room::{
@@ -151,6 +151,17 @@ script_mod! {
             spacing: 0.0
             scroll_bar: ListScrollBar {}
 
+            // In the mobile layout, the header and the bottom bars are drawn over the list,
+            // so the list's first and last items are blank spaces as tall as those bars.
+            header_space := View { width: Fill, height: Fit }
+            header_space_with_lobby := View {
+                width: Fill, height: Fit
+                space_lobby_entry := SpaceLobbyEntry {
+                    visible: true
+                    margin: Inset{top: 5, bottom: 5}
+                }
+            }
+            bottom_bars_space := View { width: Fill, height: Fit }
             collapsible_header := CollapsibleHeader {}
             rooms_list_entry := RoomsListEntry {}
             empty := View {}
@@ -606,6 +617,12 @@ pub struct RoomsList {
     #[rust] max_known_rooms: Option<u32>,
     // /// Whether the room list service has loaded all requested rooms from the homeserver.
     // #[rust] all_rooms_loaded: bool,
+
+    /// Whether the list's first and last items are blank spaces for the bars
+    /// that are drawn over it in the mobile layout.
+    #[rust] has_bar_spaces: bool,
+    #[rust] header_space_height: f64,
+    #[rust] bottom_bars_space_height: f64,
 }
 
 impl ScriptHook for RoomsList {
@@ -1212,7 +1229,21 @@ impl RoomsList {
                         self.invited_rooms_indexes.first_room_index + invited_index
                     }
                     else { continue };
-                    portal_list.smooth_scroll_to(cx, portal_list_index, speed, Some(15), 10.0);
+                    // In the mobile layout, the room must end up below the header drawn over the list.
+                    // A smooth scroll leaves a room alone if it's already on screen, even under one of the bars.
+                    let top_offset = 10.0 + if self.has_bar_spaces { self.header_space_height } else { 0.0 };
+                    let list_height = portal_list.area().rect(cx).size.y;
+                    if self.has_bar_spaces
+                        && portal_list.drawn_slot(portal_list_index).is_some_and(|slot|
+                            (0.0..list_height).contains(&slot.start)
+                                && (slot.start < top_offset || slot.start + slot.size > list_height - self.bottom_bars_space_height)
+                        )
+                    {
+                        portal_list.set_first_id_and_scroll(portal_list_index, top_offset);
+                        portal_list.redraw(cx);
+                    } else {
+                        portal_list.smooth_scroll_to(cx, portal_list_index, speed, Some(15), top_offset);
+                    }
                 }
                 RoomsListUpdate::SpaceRequestSender(sender) => {
                     self.space_request_sender = Some(sender);
@@ -1456,8 +1487,9 @@ impl RoomsList {
         let should_show_direct_rooms_header  = !self.displayed_direct_rooms.is_empty();
         let should_show_regular_rooms_header = !self.displayed_regular_rooms.is_empty();
 
-        let index_of_invited_rooms_header = should_show_invited_rooms_header.then_some(0);
-        let index_of_first_invited_room = should_show_invited_rooms_header as usize;
+        let first_index = self.has_bar_spaces as usize;
+        let index_of_invited_rooms_header = should_show_invited_rooms_header.then_some(first_index);
+        let index_of_first_invited_room = first_index + should_show_invited_rooms_header as usize;
         let index_after_invited_rooms = index_of_first_invited_room +
             if self.is_invited_rooms_header_expanded {
                 self.displayed_invited_rooms.len()
@@ -1880,7 +1912,7 @@ impl Widget for RoomsList {
                             }
 
                             self.selected_space = Some(space_name_id.clone());
-                            self.view.space_lobby_entry(cx, ids!(space_lobby_entry)).set_visible(cx, true);
+                            self.view.space_lobby_entry(cx, ids!(space_lobby_entry)).set_visible(cx, !self.has_bar_spaces);
 
                             // If we don't have the full list of children in this newly-selected space, then fetch it.
                             let (pagination, parent_chain) = self.space_map
@@ -1971,13 +2003,32 @@ impl Widget for RoomsList {
             self.current_active_room = app_state.selected_room.clone();
         }
 
+        // In the mobile layout, the space lobby entry moves into the list's first item.
+        let has_bar_spaces = !effective_is_desktop(cx);
+        if has_bar_spaces != self.has_bar_spaces {
+            self.has_bar_spaces = has_bar_spaces;
+            self.view.space_lobby_entry(cx, ids!(space_lobby_entry))
+                .set_visible(cx, self.selected_space.is_some() && !has_bar_spaces);
+            // Adding or removing that first item moves every other item by one,
+            // so we keep the list showing the same rooms.
+            let portal_list = self.view.portal_list(cx, ids!(list));
+            let (first_id, first_scroll) = (portal_list.first_id(), portal_list.scroll_position());
+            let (first_id, first_scroll) = match (has_bar_spaces, first_id) {
+                (false, 0) => (0, (first_scroll + self.header_space_height).min(0.0)),
+                (false, _) => (first_id - 1, first_scroll),
+                (true, 0) if first_scroll > -0.5 => (0, 0.0),
+                (true, _) => (first_id + 1, first_scroll),
+            };
+            portal_list.set_first_id_and_scroll_in_place(first_id, first_scroll);
+        }
+
         // Based on the various displayed room lists and is_expanded state of each room header,
         // calculate the indexes in the PortalList where the headers and rooms should be drawn.
         self.recalculate_indexes();
 
         let status_label_id = self.regular_rooms_indexes.after_rooms_index;
-        // Add one for the status label
-        let total_count = status_label_id + 1;
+        // Add one for the status label, and in the mobile layout, one for the bottom bars' space after it.
+        let total_count = status_label_id + 1 + self.has_bar_spaces as usize;
 
         let get_invited_room_id = |portal_list_index: usize| {
             portal_list_index.checked_sub(self.invited_rooms_indexes.first_room_index)
@@ -2006,8 +2057,8 @@ impl Widget for RoomsList {
         while let Some(widget_to_draw) = self.view.draw_walk(cx, scope, walk).step() {
             // Ensure that the portal list is not scrolled past the end of the list.
             let portal_list_ref = widget_to_draw.as_portal_list();
-            if portal_list_ref.first_id() > status_label_id {
-                portal_list_ref.set_first_id_and_scroll(status_label_id, 0.0);
+            if portal_list_ref.first_id() >= total_count {
+                portal_list_ref.set_first_id_and_scroll(total_count - 1, 0.0);
             }
             // We only care about drawing the portal list.
             let Some(mut list) = portal_list_ref.borrow_mut() else { continue };
@@ -2017,7 +2068,15 @@ impl Widget for RoomsList {
             while let Some(portal_list_index) = list.next_visible_item(cx) {
                 let mut scope = Scope::empty();
 
-                if self.invited_rooms_indexes.header_index == Some(portal_list_index) {
+                if self.has_bar_spaces && portal_list_index == 0 {
+                    let template = if self.selected_space.is_some() { id!(header_space_with_lobby) } else { id!(header_space) };
+                    let item = list.item(cx, portal_list_index, template);
+                    if let Some(mut header_space) = item.as_view().borrow_mut() {
+                        header_space.layout.padding.top = self.header_space_height;
+                    }
+                    item.draw_all(cx, &mut scope);
+                }
+                else if self.invited_rooms_indexes.header_index == Some(portal_list_index) {
                     let item = list.item(cx, portal_list_index, id!(collapsible_header));
                     item.as_collapsible_header().set_details(
                         cx,
@@ -2144,6 +2203,13 @@ impl Widget for RoomsList {
                         .set_visible(cx, self.is_selected_space_loading);
                     item.draw_all(cx, &mut scope);
                 }
+                else if self.has_bar_spaces && portal_list_index == status_label_id + 1 {
+                    let item = list.item(cx, portal_list_index, id!(bottom_bars_space));
+                    if let Some(mut bottom_bars_space) = item.as_view().borrow_mut() {
+                        bottom_bars_space.layout.padding.top = self.bottom_bars_space_height;
+                    }
+                    item.draw_all(cx, &mut scope);
+                }
                 // Draw a filler entry to take up space at the bottom of the portal list.
                 else {
                     list.item(cx, portal_list_index, id!(bottom_filler))
@@ -2238,6 +2304,23 @@ impl RoomsListRef {
             .space_map
             .get(space_id)
             .map(|smv| smv.parent_chain.clone())
+    }
+
+    /// Sets the heights of the blank spaces at the top and bottom of the list,
+    /// for the header and bottom bars that are drawn over it in the mobile layout.
+    pub fn set_bar_space_heights(&self, cx: &mut Cx, header_height: f64, bottom_bars_height: f64) {
+        let Some(mut inner) = self.borrow_mut() else { return };
+        if (inner.header_space_height, inner.bottom_bars_space_height) != (header_height, bottom_bars_height) {
+            inner.header_space_height = header_height;
+            inner.bottom_bars_space_height = bottom_bars_height;
+            inner.redraw(cx);
+        }
+    }
+
+    /// Smoothly scrolls the list back up to its top.
+    pub fn scroll_to_top(&self, cx: &mut Cx) {
+        let Some(inner) = self.borrow() else { return };
+        inner.view.portal_list(cx, ids!(list)).smooth_scroll_to(cx, 0, 50.0, Some(15), 0.0);
     }
 }
 

@@ -24,6 +24,12 @@ pub struct AppPreferences {
     /// Whether a mouse or trackpad can scroll views by clicking and dragging them.
     #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
     pub mouse_drag_scrolling: bool,
+    /// Whether scrolling down the rooms list hides its header (title and filter bar) in the narrow layout.
+    #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
+    pub hide_header_on_scroll: bool,
+    /// Whether scrolling down the rooms list hides the bottom bars (navigation and spaces bars) in the narrow layout.
+    #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
+    pub hide_bottom_bars_on_scroll: bool,
     /// Max height of image thumbnails in the room timeline.
     #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
     pub thumbnail_max_height: ThumbnailMaxHeight,
@@ -59,6 +65,8 @@ impl Default for AppPreferences {
             view_mode: ViewModeOverride::default(),
             send_on_enter: true,
             mouse_drag_scrolling: true,
+            hide_header_on_scroll: true,
+            hide_bottom_bars_on_scroll: false,
             thumbnail_max_height: ThumbnailMaxHeight::default(),
             ui_zoom: UiZoom::default(),
             read_receipts_privacy: ReadReceiptsPrivacy::default(),
@@ -92,6 +100,16 @@ impl AppPreferences {
     pub fn on_mouse_drag_scrolling_changed(&self, cx: &mut Cx) {
         cx.global::<AppPreferencesGlobal>().0.mouse_drag_scrolling = self.mouse_drag_scrolling;
         cx.set_mouse_drag_scrolling(self.mouse_drag_scrolling);
+    }
+
+    /// Applies the current `hide_header_on_scroll` value.
+    pub fn on_hide_header_on_scroll_changed(&self, cx: &mut Cx) {
+        cx.global::<AppPreferencesGlobal>().0.hide_header_on_scroll = self.hide_header_on_scroll;
+    }
+
+    /// Applies the current `hide_bottom_bars_on_scroll` value.
+    pub fn on_hide_bottom_bars_on_scroll_changed(&self, cx: &mut Cx) {
+        cx.global::<AppPreferencesGlobal>().0.hide_bottom_bars_on_scroll = self.hide_bottom_bars_on_scroll;
     }
 
     /// Broadcasts the current `thumbnail_max_height` to listening widgets.
@@ -205,6 +223,8 @@ impl AppPreferences {
         self.on_view_mode_changed(cx);
         self.on_send_on_enter_changed(cx);
         self.on_mouse_drag_scrolling_changed(cx);
+        self.on_hide_header_on_scroll_changed(cx);
+        self.on_hide_bottom_bars_on_scroll_changed(cx);
         self.on_thumbnail_max_height_changed(cx);
         self.on_ui_zoom_changed(cx);
         self.on_read_receipts_privacy_changed(cx);
