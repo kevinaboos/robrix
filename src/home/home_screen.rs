@@ -27,12 +27,15 @@ use crate::{
     utils::{self, RoomNameId},
 };
 
+/// How far the spaces bar's shadow reaches around it.
+pub(crate) const SPACES_BAR_SHADOW_RADIUS: f64 = 15.0;
+
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.*
 
 
-    // Defines the total height of the StackNavigationView's header.
+    // Defines the height of the StackNavigationView's header, not counting the status bar area above it.
     // This has to be set in multiple places because of how StackNavigation
     // uses an Overlay view internally.
     mod.widgets.STACK_VIEW_HEADER_HEIGHT = 45
@@ -44,8 +47,9 @@ script_mod! {
         width: Fill, height: Fill
         draw_bg.color: (COLOR_PRIMARY)
         header +: {
-            height: (mod.widgets.STACK_VIEW_HEADER_HEIGHT),
-            padding: 0
+            // The header's background extends up through the status bar area.
+            height: (mod.widgets.STACK_VIEW_HEADER_HEIGHT + mod.widgets.SAFE_INSET_PAD_TOP),
+            padding: Inset{top: (mod.widgets.SAFE_INSET_PAD_TOP)}
             align: Align{y: 0.5}
 
             // Below is a shader to draw a shadow under the bottom half of the header
@@ -97,7 +101,7 @@ script_mod! {
         body +: {
             // The top margin leaves room for the stack nav header.
             // The other padding is for safe inset areas.
-            margin: Inset{top: (mod.widgets.STACK_VIEW_HEADER_HEIGHT)}
+            margin: Inset{top: (mod.widgets.STACK_VIEW_HEADER_HEIGHT + mod.widgets.SAFE_INSET_PAD_TOP)}
             padding: Inset{
                 left: (mod.widgets.SAFE_INSET_PAD_LEFT),
                 right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
@@ -122,8 +126,29 @@ script_mod! {
             border_radius: 4.0
             border_size: 0.0
             shadow_color: (COLOR_SHADOW)
-            shadow_radius: 15.0
+            shadow_radius: #(SPACES_BAR_SHADOW_RADIUS)
             shadow_offset: vec2(1.0, 0.0)
+
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size3)
+                // The box reaches one anti-aliasing ramp below the bar, so its bottom row stays solid
+                // where it meets the nav bar, and the rooms beneath can't show through that seam.
+                sdf.box(
+                    self.sdf_rect_pos.x
+                    self.sdf_rect_pos.y
+                    self.sdf_rect_size.x
+                    self.sdf_rect_size.y + 1.0 / sdf.aa
+                    max(1.0 self.border_radius)
+                )
+                if sdf.shape > -1.0 {
+                    let m = self.shadow_radius
+                    let o = self.shadow_offset + self.rect_shift
+                    let v = GaussShadow.rounded_box_shadow(vec2(m) + o self.rect_size2+o self.pos * (self.rect_size3+vec2(m)) self.shadow_radius*0.5 self.border_radius*2.0)
+                    sdf.clear(self.shadow_color * v)
+                }
+                sdf.fill_keep(self.color)
+                return sdf.result
+            }
         }
 
         CachedWidget {
@@ -161,7 +186,8 @@ script_mod! {
                 flow: Right
                 align: Align{x: 0.0, y: 0.0}
                 padding: 0,
-                margin: 0,
+                // This keeps the desktop layout out of a tablet's status bar area.
+                margin: Inset{top: (mod.widgets.SAFE_INSET_PAD_TOP)},
 
                 show_bg: true
                 draw_bg +: {
@@ -262,57 +288,64 @@ script_mod! {
                         flow: Down
                         width: Fill, height: Fill
 
-                        // At the top of the root view, we use the PageFlip widget to show either
-                        // the main list of rooms or the settings screen.
-                        home_screen_page_flip := PageFlip {
-                            width: Fill, height: Fill
-                            padding: Inset{
-                                left: (mod.widgets.SAFE_INSET_PAD_LEFT),
-                                right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
-                            }
+                        // Scrolling down the rooms list slides its header and the bottom bars out of view.
+                        mod.widgets.HideOnScrollView {
+                            content +: {
+                                // At the top of the root view, we use the PageFlip widget to show either
+                                // the main list of rooms or the settings screen.
+                                home_screen_page_flip := PageFlip {
+                                    width: Fill, height: Fill
+                                    padding: Inset{
+                                        left: (mod.widgets.SAFE_INSET_PAD_LEFT),
+                                        right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
+                                    }
 
-                            lazy_init: true,
-                            active_page: @home_page
+                                    lazy_init: true,
+                                    active_page: @home_page
 
-                            home_page := View {
-                                width: Fill, height: Fill
-                                // Note: while the other page views have top padding, we do NOT add that here
-                                // because it is added in the `RoomsSideBar`'s `RoundedShadowView` itself.
-                                flow: Down
+                                    home_page := View {
+                                        width: Fill, height: Fill
+                                        // Note: while the other page views have top padding, we do NOT add that here
+                                        // because it is added in the header that the `HideOnScrollView` draws over this page.
+                                        flow: Down
 
-                                mod.widgets.RoomsSideBar {}
-                            }
+                                        mod.widgets.RoomsSideBar {}
+                                    }
 
-                            settings_page := View {
-                                width: Fill, height: Fill
+                                    settings_page := View {
+                                        width: Fill, height: Fill
 
-                                CachedWidget {
-                                    settings_screen := mod.widgets.SettingsScreen {}
+                                        CachedWidget {
+                                            settings_screen := mod.widgets.SettingsScreen {}
+                                        }
+                                    }
+
+                                    add_room_page := View {
+                                        width: Fill, height: Fill
+
+                                        CachedWidget {
+                                            add_room_screen := mod.widgets.AddRoomScreen {}
+                                        }
+                                    }
                                 }
                             }
 
-                            add_room_page := View {
-                                width: Fill, height: Fill
-
+                            bottom_bars +: {
+                                // Show the SpacesBar right above the navigation tab bar.
+                                // We wrap it in the SpacesBarWrapper in order to animate it in or out,
+                                // and wrap *that* in a CachedWidget in order to maintain its shown/hidden state
+                                // across AdaptiveView transitions between Mobile view mode and Desktop view mode.
+                                //
+                                // ... Then we wrap *that* in a ... <https://www.youtube.com/watch?v=evUWersr7pc>
                                 CachedWidget {
-                                    add_room_screen := mod.widgets.AddRoomScreen {}
+                                    spaces_bar_wrapper := mod.widgets.SpacesBarWrapper {}
+                                }
+
+                                // At the bottom of the root view, show the navigation tab bar horizontally.
+                                CachedWidget {
+                                    navigation_tab_bar := mod.widgets.NavigationTabBar {}
                                 }
                             }
-                        }
-
-                        // Show the SpacesBar right above the navigation tab bar.
-                        // We wrap it in the SpacesBarWrapper in order to animate it in or out,
-                        // and wrap *that* in a CachedWidget in order to maintain its shown/hidden state
-                        // across AdaptiveView transitions between Mobile view mode and Desktop view mode.
-                        //
-                        // ... Then we wrap *that* in a ... <https://www.youtube.com/watch?v=evUWersr7pc>
-                        CachedWidget {
-                            spaces_bar_wrapper := mod.widgets.SpacesBarWrapper {}
-                        }
-
-                        // At the bottom of the root view, show the navigation tab bar horizontally.
-                        CachedWidget {
-                            navigation_tab_bar := mod.widgets.NavigationTabBar {}
                         }
                     }
 
@@ -367,6 +400,8 @@ pub struct SpacesBarWrapper {
     #[apply_default] animator: Animator,
     /// Whether we drew the spaces bar last time (it's not drawn while hidden).
     #[rust] was_drawn: bool,
+    /// The room that the spaces bar keeps taking up while it replays its show animation.
+    #[rust] held_height: f64,
 }
 
 impl ScriptHook for SpacesBarWrapper {
@@ -419,11 +454,46 @@ impl Widget for SpacesBarWrapper {
             return DrawStep::done();
         }
         self.was_drawn = true;
+        // While it replays its show animation, it grows within the room it already took up,
+        // so the rooms list beneath it doesn't jump.
+        let mut walk = walk;
+        if self.animator_in_state(cx, ids!(spaces_bar_animator.show))
+            && let Size::Fixed(height) = walk.height
+            && height < self.held_height
+        {
+            walk.margin.top += self.held_height - height;
+        } else {
+            self.held_height = 0.0;
+        }
         self.view.draw_walk(cx, scope, walk)
     }
 }
 
 impl SpacesBarWrapperRef {
+    /// Moves the spaces bar down by `offset`, without changing how much room it takes up.
+    pub fn set_slide_offset(&self, offset: f64) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.view.walk.margin.top = offset;
+            inner.view.walk.margin.bottom = -offset;
+        }
+    }
+
+    /// Whether the spaces bar is shown or animating in, even if it's out of view.
+    pub fn is_shown(&self, cx: &Cx) -> bool {
+        self.borrow().is_some_and(|inner| inner.animator_in_state(cx, ids!(spaces_bar_animator.show)))
+    }
+
+    /// Shows the spaces bar by animating it in from fully hidden, even if it was already shown but out of view.
+    pub fn show_from_hidden(&self, cx: &mut Cx) {
+        if let Some(mut inner) = self.borrow_mut() {
+            if let Size::Fixed(height) = inner.view.walk.height {
+                inner.held_height = height;
+            }
+            inner.animator_cut(cx, ids!(spaces_bar_animator.hide));
+        }
+        self.show_or_hide(cx, true);
+    }
+
     /// Shows or hides the spaces bar by animating it in or out.
     fn show_or_hide(&self, cx: &mut Cx, show: bool) {
         let Some(mut inner) = self.borrow_mut() else { return };
@@ -491,7 +561,6 @@ pub struct HomeScreen {
     /// Note that the current selected tap is stored in `AppState` so that
     /// other widgets can easily access it.
     #[rust] previous_selection: SelectedTab,
-    #[rust] is_spaces_bar_shown: bool,
 
     /// The Home or Space tab that was previously selected before the transition
     /// to mobile view mode or before another transition (like going to AddRoom).
@@ -610,9 +679,8 @@ impl Widget for HomeScreen {
                         }
                     }
                     Some(NavigationBarAction::ToggleSpacesBar) => {
-                        self.is_spaces_bar_shown = !self.is_spaces_bar_shown;
-                        self.view.spaces_bar_wrapper(cx, ids!(spaces_bar_wrapper))
-                            .show_or_hide(cx, self.is_spaces_bar_shown);
+                        let spaces_bar_wrapper = self.view.spaces_bar_wrapper(cx, ids!(spaces_bar_wrapper));
+                        spaces_bar_wrapper.show_or_hide(cx, !spaces_bar_wrapper.is_shown(cx));
                     }
                     Some(NavigationBarAction::PrepareSettings) => {
                         // Calling `page()` instantiates the settings page (if needed) but doesn't show it.
@@ -1064,7 +1132,8 @@ impl HomeScreen {
 
     fn set_mobile_stack_header_height(cx: &mut Cx, stack_view: &WidgetRef, height: f64) {
         if let Some(mut body) = stack_view.view(cx, ids!(body)).borrow_mut() {
-            body.walk.margin.top = height;
+            // The header also covers the status bar area above its content.
+            body.walk.margin.top = height + cx.display_context.safe_area_insets.top;
         }
         stack_view.redraw(cx);
     }

@@ -137,15 +137,15 @@ pub fn close_context_menus(cx: &mut Cx, ui: &WidgetRef) {
 }
 
 /// Returns a margin that positions the context menu at `anchor_pos`,
-/// but ensuring that it stays within the given `container_rect`.
-pub fn menu_position_margin(container_rect: Rect, anchor_pos: DVec2, menu_size: DVec2) -> Inset {
+/// but ensuring that it stays within the given `container_rect` and below the status bar.
+pub fn menu_position_margin(cx: &Cx, container_rect: Rect, anchor_pos: DVec2, menu_size: DVec2) -> Inset {
     Inset {
         left: (anchor_pos.x - container_rect.pos.x)
             .min(container_rect.size.x - menu_size.x)
             .max(0.0),
         top: (anchor_pos.y - container_rect.pos.y)
             .min(container_rect.size.y - menu_size.y)
-            .max(0.0),
+            .max(cx.display_context.safe_area_insets.top),
         right: 0.0,
         bottom: 0.0,
     }

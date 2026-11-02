@@ -306,8 +306,8 @@ impl MentionablePopup {
         let left_win = anchor.pos.x.clamp(edge, (window_size.x - edge - width).max(edge));
 
         // Measure space inside the overlay body, not the window: its top is at
-        // overlay.y, so the popup never spills up into the caption.
-        let top_limit = overlay.y + edge;
+        // overlay.y, so the popup never spills up into the caption or the status bar.
+        let top_limit = overlay.y + cx.display_context.safe_area_insets.top + edge;
         let bottom_limit = window_size.y - edge;
         // Must match header_view's fixed height in the DSL.
         let header_h = HEADER_HEIGHT;

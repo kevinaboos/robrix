@@ -22,12 +22,13 @@ script_mod! {
     mod.widgets.VERIFICATION_UNK_BG = crate_resource("self://resources/icons/verification_unk_bg.svg")
 
     mod.widgets.VerificationIcon = Icon {
+        width: Fill, height: Fill
         icon_walk: Walk {
-            width: (NAVIGATION_TAB_BAR_SIZE * 0.28),
-            height: (NAVIGATION_TAB_BAR_SIZE * 0.28),
+            width: Fill,
+            height: Fill,
             margin: 0,
         }
-        margin: Inset{left: 0, right: 3, top: 2, bottom: 0}
+        margin: 0
     }
 
     // Each verification icon is a colored shield with the inner glyph carved
@@ -37,7 +38,8 @@ script_mod! {
     mod.widgets.IconYes = View {
 
         visible: false
-        width: Fit, height: Fit
+        width: Fill, height: Fill
+        clip_x: false, clip_y: false
         flow: Overlay
         mod.widgets.VerificationIcon {
             draw_icon +: {
@@ -56,7 +58,8 @@ script_mod! {
     mod.widgets.IconNo = View {
 
         visible: false
-        width: Fit, height: Fit
+        width: Fill, height: Fill
+        clip_x: false, clip_y: false
         flow: Overlay
         mod.widgets.VerificationIcon {
             draw_icon +: {
@@ -75,7 +78,8 @@ script_mod! {
     mod.widgets.IconUnk = View {
 
         visible: false
-        width: Fit, height: Fit
+        width: Fill, height: Fill
+        clip_x: false, clip_y: false
         flow: Overlay
         mod.widgets.VerificationIcon {
             draw_icon +: {
@@ -99,10 +103,13 @@ script_mod! {
         tooltip_bg_verified: (COLOR_BG_ACCEPT_GREEN_SOLID)
         tooltip_bg_unverified: (COLOR_BG_DANGER_RED_SOLID)
 
+        // The badge's size is on this view rather than on its icons,
+        // so that the mobile nav bar can shrink it into its floating pill.
         verification_icons := View {
             flow: Overlay
             align: Align{ x: 1.0, y: 0 }
-            width: Fit, height: Fit
+            width: (NAVIGATION_TAB_BAR_SIZE * 0.28 + 3.0), height: (NAVIGATION_TAB_BAR_SIZE * 0.28 + 2.0)
+            padding: Inset{right: 3, top: 2}
 
             icon_yes := mod.widgets.IconYes {}
             icon_no := mod.widgets.IconNo {}

@@ -320,7 +320,7 @@ impl NavHistoryMenu {
         // The list must scroll if it's too long to fit beneath the anchor.
         let full_height = places.len() as f64 * BUTTON_HEIGHT + 2.0 * MENU_PADDING;
         let height = full_height.min((container_rect.pos.y + container_rect.size.y - anchor_pos.y).max(one_row_height));
-        let margin = menu_position_margin(container_rect, anchor_pos, dvec2(width, height));
+        let margin = menu_position_margin(cx, container_rect, anchor_pos, dvec2(width, height));
         if let Some(mut main_content) = self.view(cx, ids!(main_content)).borrow_mut() {
             main_content.walk.margin = margin;
             main_content.walk.width = Size::Fixed(width);

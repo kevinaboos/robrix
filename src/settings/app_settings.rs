@@ -410,6 +410,26 @@ script_mod! {
 
         SubsectionLabel {
             margin: Inset{top: 10}
+            text: "Scrolling the Rooms List"
+        }
+
+        View {
+            width: Fill, height: Fit
+            flow: Down,
+            margin: Inset{left: 6},
+
+            hide_header_on_scroll_toggle := mod.widgets.RobrixSettingsToggle {
+                active: true,
+                text: "Hide top bar while scrolling"
+            }
+            hide_bottom_bars_on_scroll_toggle := mod.widgets.RobrixSettingsToggle {
+                active: false,
+                text: "Hide bottom bar while scrolling"
+            }
+        }
+
+        SubsectionLabel {
+            margin: Inset{top: 10}
             text: "Maximum Height of Thumbnails"
         }
 
@@ -720,6 +740,32 @@ impl AppSettings {
             );
         }
 
+        if is_shown
+            && let Some(hide) = self.view.check_box(cx, ids!(hide_header_on_scroll_toggle)).changed(actions)
+            && hide != app_state.app_prefs.hide_header_on_scroll
+        {
+            app_state.app_prefs.hide_header_on_scroll = hide;
+            app_state.app_prefs.on_hide_header_on_scroll_changed(cx);
+            enqueue_popup_notification(
+                "Updated top bar scrolling.",
+                PopupKind::Success,
+                Some(3.0),
+            );
+        }
+
+        if is_shown
+            && let Some(hide) = self.view.check_box(cx, ids!(hide_bottom_bars_on_scroll_toggle)).changed(actions)
+            && hide != app_state.app_prefs.hide_bottom_bars_on_scroll
+        {
+            app_state.app_prefs.hide_bottom_bars_on_scroll = hide;
+            app_state.app_prefs.on_hide_bottom_bars_on_scroll_changed(cx);
+            enqueue_popup_notification(
+                "Updated bottom bar scrolling.",
+                PopupKind::Success,
+                Some(3.0),
+            );
+        }
+
         let custom_input = self.view.text_input(cx, ids!(thumb_custom_input));
         if is_shown
             && let Some(selected) = self.view.radio_button_set(cx, ids_array!(
@@ -879,6 +925,10 @@ impl AppSettings {
 
         self.view.check_box(cx, ids!(mouse_drag_scrolling_toggle))
             .set_active(cx, prefs.mouse_drag_scrolling, Animate::No);
+        self.view.check_box(cx, ids!(hide_header_on_scroll_toggle))
+            .set_active(cx, prefs.hide_header_on_scroll, Animate::No);
+        self.view.check_box(cx, ids!(hide_bottom_bars_on_scroll_toggle))
+            .set_active(cx, prefs.hide_bottom_bars_on_scroll, Animate::No);
         self.view.check_box(cx, ids!(show_read_receipts_toggle))
             .set_active(cx, prefs.show_read_receipts, Animate::No);
         self.view.check_box(cx, ids!(show_typing_notices_toggle))

@@ -75,16 +75,9 @@ script_mod! {
                 }
 
                 body +: {
-                    // Only the top part of safe area inset padding is applied here,
-                    // since we don't have any bar or anything on the top.
-                    // The other sides are handled by widgets that might draw in those areas,
+                    // All safe area insets are handled by widgets that might draw in those areas,
                     // like the NavigationTabBar or room screen content.
-                    padding: Inset{
-                        top: (mod.widgets.SAFE_INSET_PAD_TOP),
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                    }
+                    padding: 0
                     keyboard_min_shift: 12.0
 
                     overlay_container := View {
@@ -100,6 +93,7 @@ script_mod! {
                         }
                         login_screen_view := View {
                             visible: true
+                            margin: Inset{top: (mod.widgets.SAFE_INSET_PAD_TOP)}
                             login_screen := LoginScreen {}
                         }
 
@@ -408,7 +402,7 @@ impl MatchEvent for App {
                 // Use the overlay container's rect (not the window's) to correctly position
                 // the context menu relative to the body area, which excludes the caption bar.
                 let rect = self.ui.view(cx, ids!(overlay_container)).area().rect(cx);
-                let margin = menu_position_margin(rect, abs_pos, expected_dimensions);
+                let margin = menu_position_margin(cx, rect, abs_pos, expected_dimensions);
                 if let Some(mut main_content) = new_message_context_menu.view(cx, ids!(main_content)).borrow_mut() {
                     main_content.walk.margin = margin;
                 }
@@ -424,7 +418,7 @@ impl MatchEvent for App {
                 // Use the overlay container's rect (not the window's) to correctly position
                 // the context menu relative to the body area, which excludes the caption bar.
                 let rect = self.ui.view(cx, ids!(overlay_container)).area().rect(cx);
-                let margin = menu_position_margin(rect, pos, expected_dimensions);
+                let margin = menu_position_margin(cx, rect, pos, expected_dimensions);
                 if let Some(mut main_content) = room_context_menu.view(cx, ids!(main_content)).borrow_mut() {
                     main_content.walk.margin = margin;
                 }

@@ -6,6 +6,7 @@ pub mod edited_indicator;
 pub mod editing_pane;
 pub mod event_source_modal;
 pub mod failed_send_banner;
+pub mod hide_on_scroll;
 pub mod home_screen;
 pub mod invite_modal;
 pub mod invite_screen;
@@ -26,6 +27,7 @@ pub mod search_messages;
 pub mod space_lobby;
 pub mod spaces_bar;
 pub mod navigation_tab_bar;
+pub mod nav_bar_pill;
 pub mod nav_history;
 pub mod nav_history_buttons;
 pub mod nav_history_menu;
@@ -75,9 +77,11 @@ pub fn script_mod(vm: &mut ScriptVm) {
     light_themed_dock::script_mod(vm);
     main_desktop_ui::script_mod(vm);
     spaces_bar::script_mod(vm);
+    nav_bar_pill::script_mod(vm);
     navigation_tab_bar::script_mod(vm);
     nav_history_buttons::script_mod(vm);
     upload_progress::script_mod(vm);
+    hide_on_scroll::script_mod(vm);
     // Keep HomeScreen last, it references many widgets registered above.
     home_screen::script_mod(vm);
 }

@@ -347,7 +347,7 @@ script_mod! {
         width: Fill,
         height: Fill,
         margin: Inset{
-            top: 10,
+            top: (10.0 + mod.widgets.SAFE_INSET_PAD_TOP),
             left: (mod.widgets.SAFE_INSET_PAD_LEFT),
             right: (mod.widgets.SAFE_INSET_PAD_RIGHT),
         }

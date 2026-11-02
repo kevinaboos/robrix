@@ -503,6 +503,9 @@ script_mod! {
     mod.widgets.COLOR_NAVIGATION_TAB_BG = #xE3E3E3
     mod.widgets.COLOR_NAVIGATION_TAB_BG_HOVER = #xC0C0C0D8
     mod.widgets.COLOR_NAVIGATION_TAB_BG_ACTIVE = #9
+    // The nav bar's background and the thin ring around it while it's shrunk into a floating pill.
+    mod.widgets.COLOR_NAVIGATION_PILL_BG = #xE3E3E3
+    mod.widgets.COLOR_NAVIGATION_PILL_RING = #x00000014
 
     mod.widgets.COLOR_IMAGE_VIEWER_BACKGROUND = #333333CC // 80% Opacity
 
