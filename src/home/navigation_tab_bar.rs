@@ -466,7 +466,7 @@ pub struct NavigationTabBar {
     /// The tab currently visually marked as selected.
     #[rust] selected_tab: SelectedTab,
 
-    /// The floating pill that the mobile bar shrinks into while scrolling the rooms list.
+    /// The floating pill that the mobile bar shrinks into while scrolling a page.
     #[rust] pill: NavBarPill,
 }
 

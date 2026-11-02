@@ -24,10 +24,11 @@ pub struct AppPreferences {
     /// Whether a mouse or trackpad can scroll views by clicking and dragging them.
     #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
     pub mouse_drag_scrolling: bool,
-    /// Whether scrolling down the rooms list hides its header (title and filter bar) in the narrow layout.
+    /// Whether scrolling down the rooms list, Settings, or AddRoom page hides its header in the narrow layout.
     #[serde(default = "default_true", deserialize_with = "deserialize_or_true")]
     pub hide_header_on_scroll: bool,
-    /// Whether scrolling down the rooms list hides the bottom bars (navigation and spaces bars) in the narrow layout.
+    /// Whether scrolling down the rooms list, Settings, or AddRoom page hides the bottom bars (navigation and spaces bars)
+    /// in the narrow layout, instead of shrinking the nav bar into a pill.
     #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
     pub hide_bottom_bars_on_scroll: bool,
     /// Max height of image thumbnails in the room timeline.

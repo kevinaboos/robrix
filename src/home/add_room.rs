@@ -7,7 +7,7 @@ use makepad_widgets::*;
 use matrix_sdk::RoomState;
 use ruma::{OwnedRoomOrAliasId, OwnedServerName, RoomId, ServerName, room::{JoinRuleSummary, RoomType}};
 
-use crate::{app::AppStateAction, avatar_cache::{self, AvatarCacheEntry}, directory_search::{DirectorySearchAction, RoomKind, RoomSearchResult, SEARCH_PAGE_SIZE, SearchQuery, UserSearchResult, get_room_directory_servers}, home::{invite_screen::{JoinRoomResultAction, LeaveRoomResultAction}, navigation_tab_bar::NavigationBarAction}, logout::logout_confirm_modal::LogoutAction, profile::{user_profile::{UserProfilePaneInfo, UserProfileSlidingPaneWidgetExt, UserProfileSlidingPaneWidgetRefExt}, user_profile_cache}, room::{FetchedRoomAvatar, FetchedRoomPreview, RoomPreviewAction}, settings::app_preferences::AppPreferencesAction, shared::{avatar::{AvatarWidgetRefExt, TextAvatarBgColor}, collapsible_header::{CollapsibleHeaderAction, CollapsibleHeaderWidgetExt}, list_rows::{LIST_ROW_HEIGHT, draw_flat_list_status_row, handle_row_actions}, popup_list::{PopupKind, enqueue_popup_notification}, styles::set_view_bg_color}, sliding_sync::{MatrixRequest, RoomPreviewResponseMode, submit_async_request}, utils::{self, MatchQuality}};
+use crate::{app::AppStateAction, avatar_cache::{self, AvatarCacheEntry}, directory_search::{DirectorySearchAction, RoomKind, RoomSearchResult, SEARCH_PAGE_SIZE, SearchQuery, UserSearchResult, get_room_directory_servers}, home::{invite_screen::{JoinRoomResultAction, LeaveRoomResultAction}, navigation_tab_bar::NavigationBarAction}, logout::logout_confirm_modal::LogoutAction, profile::{user_profile::{UserProfilePaneInfo, UserProfileSlidingPaneWidgetExt, UserProfileSlidingPaneWidgetRefExt}, user_profile_cache}, room::{FetchedRoomAvatar, FetchedRoomPreview, RoomPreviewAction}, settings::app_preferences::AppPreferencesAction, shared::{avatar::{AvatarWidgetRefExt, TextAvatarBgColor}, collapsible_header::{CollapsibleHeaderAction, CollapsibleHeaderWidgetExt}, list_rows::{LIST_ROW_HEIGHT, draw_flat_list_status_row, handle_row_actions}, page_header::PAGE_SIDE_PADDING, popup_list::{PopupKind, enqueue_popup_notification}, styles::set_view_bg_color}, sliding_sync::{MatrixRequest, RoomPreviewResponseMode, submit_async_request}, utils::{self, MatchQuality}};
 
 /// The width of the Go buttons and the Edit button below the room search box, so they line up.
 const SEARCH_BUTTON_WIDTH: f64 = 72.0;
@@ -92,20 +92,15 @@ script_mod! {
         }
     }
 
-    // The scrollable content of the AddRoomScreen, beneath its user profile pane.
+    // The scrollable content of the AddRoomScreen, beneath its header and its user profile pane.
     let AddRoomScreenContent = ScrollYView {
         width: Fill, height: Fill,
         flow: Down,
-        padding: Inset{top: 5, left: 15, right: 15, bottom: 0},
+        padding: Inset{left: #(PAGE_SIDE_PADDING), right: #(PAGE_SIDE_PADDING)},
 
-        title := TitleLabel {
-            text: "Add Rooms, Spaces, and People"
-            draw_text +: {
-                text_style: theme.font_regular {font_size: 18},
-            }
-        }
-        
-        LineH { padding: 10, margin: Inset{top: 10, right: 2} }
+        // The mobile root view makes this as tall as how far the header has slid up,
+        // so this content stays put while the header slides out of view.
+        header_space := View { width: Fill, height: 0 }
 
         find_rooms_heading := SubsectionLabel {
             text: "Find and join rooms or spaces"
@@ -390,6 +385,9 @@ script_mod! {
             width: Fill
             height: 20
         }
+
+        // The mobile root view makes this as tall as its bottom bars, so this content can scroll out from under them.
+        bottom_bars_space := View { width: Fill, height: 0 }
     }
 
     // The main view that allows the user to add (join) or explore new rooms/spaces, and find people.
@@ -402,7 +400,15 @@ script_mod! {
         search_input_padding: Inset{left: 12, right: 12, top: 0, bottom: 0}
         clear_button_gutter: 42.5
 
-        content := AddRoomScreenContent {}
+        View {
+            flow: Down
+
+            page_header := PageHeader {
+                title_row +: { title +: { text: "Add Rooms, Spaces, and People" } }
+            }
+
+            content := AddRoomScreenContent {}
+        }
 
         // Shown upon clicking a person in the search results, on top of all other content.
         user_profile_sliding_pane := mod.widgets.UserProfileSlidingPane { }
@@ -612,7 +618,7 @@ impl Widget for AddRoomScreen {
         let event = if let Event::Trigger(trigger_event) = event && let Some(area) = self.tab_scroll_target.take() {
             let mut trigger_event = trigger_event.clone();
             trigger_event.triggers.insert(
-                self.view.child(id!(content)).area(),
+                self.view.child_by_path(ids!(content)).area(),
                 vec![Trigger { id: live_id!(scroll_focus_nav), from: area }],
             );
             tab_scroll_event = Event::Trigger(trigger_event);
@@ -677,6 +683,15 @@ impl Widget for AddRoomScreen {
                 // The settings screen covers this button, so it never gets the hover-out event.
                 edit_room_directories_button.reset_hover(cx);
                 cx.action(NavigationBarAction::OpenSettings);
+            }
+
+            let close_button = self.view.button(cx, ids!(page_header.close_button));
+            if close_button.clicked(actions) {
+                // This screen gets hidden, so the button never gets the hover-out event,
+                // and nothing in it should keep key focus.
+                close_button.reset_hover(cx);
+                cx.set_key_focus(Area::Empty);
+                cx.action(NavigationBarAction::CloseAddRoom);
             }
 
             // Enable or disable the button based on if the text input is empty.
@@ -1259,7 +1274,7 @@ impl Widget for AddRoomScreen {
             list.items.retain_visible();
         }
         // If the content moved or resized, rows we skipped could be in view now, so we draw once more.
-        self.content_viewport = self.view.child(id!(content)).area().rect(cx);
+        self.content_viewport = self.view.child_by_path(ids!(content)).area().rect(cx);
         if self.content_viewport != viewport {
             cx.redraw_area_in_draw(self.view.area());
         }
@@ -1337,7 +1352,7 @@ impl AddRoomScreen {
         self.view.button(cx, ids!(fetched_room_summary.buttons_view.join_room_button)).reset_hover(cx);
         self.view.button(cx, ids!(fetched_room_summary.buttons_view.cancel_button)).reset_hover(cx);
         // The preview replaces the results, which the user may have scrolled down, so we scroll back up to it.
-        self.view.child(id!(content)).as_view().set_scroll_pos(cx, Vec2d::default());
+        self.view.child_by_path(ids!(content)).as_view().set_scroll_pos(cx, Vec2d::default());
         self.redraw(cx);
     }
 
@@ -1473,7 +1488,7 @@ impl AddRoomScreen {
 
     /// Scrolls the content to show the given area, just like makepad does for the widget that Tab moves to.
     fn scroll_into_view(&self, cx: &mut Cx, area: Area) {
-        cx.send_trigger(self.view.child(id!(content)).area(), Trigger { id: live_id!(scroll_focus_nav), from: area });
+        cx.send_trigger(self.view.child_by_path(ids!(content)).area(), Trigger { id: live_id!(scroll_focus_nav), from: area });
     }
 
     /// Starts getting more results for the given list from each directory that has more,

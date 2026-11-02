@@ -1,7 +1,7 @@
-//! The floating pill that the mobile nav bar shrinks into while the user scrolls down the rooms list,
+//! The floating pill that the mobile nav bar shrinks into while the user scrolls down a page,
 //! which it does instead of sliding out of view when the user's preferences keep the bottom bar shown.
 //!
-//! Scrolling back up, reaching the top of the list, or tapping any of its buttons expands it again.
+//! Scrolling back up, reaching the top of the page, or tapping any of its buttons expands it again.
 
 use makepad_widgets::{animator::Ease, *};
 
@@ -28,11 +28,11 @@ const PILL_BUTTON_RADIUS: f64 = (PILL_HEIGHT - PILL_BUTTON_MARGIN.top - PILL_BUT
 /// How large the pill's icons and avatar are, compared to the docked bar's.
 const PILL_ICON_SCALE: f64 = 0.74;
 
-/// How far the list has to scroll in one direction before the bar shrinks or expands.
+/// How far the page has to scroll in one direction before the bar shrinks or expands.
 const SCROLL_THRESHOLD: f64 = 12.0;
-/// The bar only shrinks once the list is scrolled this far from its top.
+/// The bar only shrinks once the page is scrolled this far from its top.
 const MIN_SCROLL_TO_SHRINK: f64 = 24.0;
-/// The bar always expands once the list is scrolled back to within this distance of its top.
+/// The bar always expands once the page is scrolled back to within this distance of its top.
 const MAX_SCROLL_TO_EXPAND: f64 = 2.0;
 const ANIMATION_DURATION_SECS: f64 = 0.32;
 /// A slight spring, which overshoots by about 4%.
@@ -44,7 +44,7 @@ script_mod! {
 
     // The mobile nav bar's background, which shrinks into a floating pill with a shadow and a thin ring.
     mod.widgets.NavigationBarPill = RoundedShadowView {
-        // This keeps hovers over the pill's empty space from reaching the rooms beneath it.
+        // This keeps hovers over the pill's empty space from reaching the content beneath it.
         cursor: MouseCursor.Default
         grab_key_focus: false
 
@@ -79,7 +79,7 @@ script_mod! {
                     sdf.fill(vec4(self.border_color.xyz, self.border_color.w * self.shrunk_fraction))
                 }
                 // While docked, the box reaches one anti-aliasing ramp past the bar's edges,
-                // so that the rooms beneath it can't show through its edge rows, e.g., at the bottom of the screen.
+                // so that the content beneath it can't show through its edge rows, e.g., at the bottom of the screen.
                 let grow = (1.0 - self.shrunk_fraction) / sdf.aa
                 sdf.box(pos.x - grow, pos.y - grow, size.x + 2.0 * grow, size.y + 2.0 * grow, max(1.0, radius))
                 sdf.fill_keep(mix(self.color, self.pill_color, self.shrunk_fraction))
@@ -284,14 +284,14 @@ impl PillWidgets {
 }
 
 
-/// Shrinks the nav bar into its pill or expands it back out, depending on how the user scrolls the rooms list.
+/// Shrinks the nav bar into its pill or expands it back out, depending on how the user scrolls the shown page.
 #[derive(Default)]
 pub struct PillMotion {
     pub state: PillState,
     /// Whether a tap on the pill expanded it, which keeps it from shrinking again
-    /// until the user starts another scroll, even while the list keeps moving.
+    /// until the user starts another scroll, even while the page keeps moving.
     pub is_held_open: bool,
-    /// How far the list has scrolled in its current direction.
+    /// How far the page has scrolled in its current direction.
     scroll_run: f64,
     animation: Option<Animation>,
 }
@@ -304,8 +304,8 @@ struct Animation {
 }
 
 impl PillMotion {
-    /// Shrinks the bar once the list has scrolled down a little, and expands it once it scrolls up a little
-    /// or gets back to its top. `distance_from_top` is how far the list is scrolled from its very top.
+    /// Shrinks the bar once the page has scrolled down a little, and expands it once it scrolls up a little
+    /// or gets back to its top. `distance_from_top` is how far the page is scrolled from its very top.
     pub fn on_scroll(&mut self, cx: &mut Cx, delta: f64, distance_from_top: f64, can_shrink: bool) {
         if distance_from_top <= MAX_SCROLL_TO_EXPAND {
             self.scroll_run = 0.0;
